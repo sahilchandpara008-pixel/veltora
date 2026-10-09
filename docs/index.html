@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Streams Admin</title>
+<style>
+  :root {
+    --bg: #0b0b0d; --s1: #16161a; --s2: #202026; --line: #2a2a30;
+    --red: #e50914; --text: #f4f4f5; --muted: #a1a1aa;
+    --green: #22c55e; --amber: #f59e0b; --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  a { color: var(--red); }
+  button, input, select, textarea { font: inherit; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+  .brand { color: var(--red); font-weight: 900; letter-spacing: 2px; }
+
+  /* login */
+  .login { max-width: 380px; margin: 10vh auto; padding: 0 16px; }
+  .login h1 { margin: 4px 0 24px; font-size: 26px; }
+
+  /* header + tabs */
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .top { display: flex; align-items: center; gap: 12px; padding: 12px 0 6px; }
+  .top .who { margin-left: auto; text-align: right; }
+  nav { display: flex; gap: 4px; overflow-x: auto; }
+  nav button { background: none; border: 0; color: var(--muted); padding: 10px 12px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+  nav button.on { color: var(--text); border-color: var(--red); }
+  main { padding: 20px 0 60px; }
+
+  /* controls */
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  input[type=text], input[type=email], input[type=password], select, textarea {
+    width: 100%; padding: 10px 12px; background: var(--s1); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; }
+  textarea { min-height: 70px; resize: vertical; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--s2); color: var(--text); cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: #3f3f46; }
+  .btn.primary { background: var(--red); border-color: var(--red); color: #fff; }
+  .btn.danger { color: var(--err); }
+  .btn.block { width: 100%; justify-content: center; padding: 12px; }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .iconbtn { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 6px; font-size: 16px; }
+  .iconbtn:hover { color: var(--text); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .err { color: var(--err); margin-top: 10px; }
+  .ok { color: var(--green); margin-top: 10px; }
+
+  /* cards/lists */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .stat { background: var(--s1); border-radius: 12px; padding: 16px; }
+  .stat b { display: block; font-size: 28px; }
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .item { background: var(--s1); border-radius: 12px; padding: 12px; display: flex; gap: 12px; align-items: center; }
+  .item .body { flex: 1; min-width: 0; }
+  .item .title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+  .thumb { width: 54px; height: 80px; border-radius: 6px; background: var(--s2) center/cover no-repeat; flex: none; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--s1); color: var(--text); cursor: pointer; }
+  .chip.on { background: var(--red); border-color: var(--red); }
+  .badge { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .4px; padding: 2px 7px; border-radius: 4px; cursor: default; }
+  .badge.free { background: #14532d; color: #86efac; }
+  .badge.premium { background: var(--red); color: #fff; }
+  .badge.hidden_premium { background: #fbbf24; color: #000; }
+  .badge.live { background: #15803d; color: #fff; }
+  .badge.draft { background: #52525b; color: #fff; }
+  .badge.click { cursor: pointer; }
+  .utr { color: var(--amber); font-weight: 700; font-family: ui-monospace, monospace; }
+  h2 { margin: 0 0 14px; font-size: 20px; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+
+  /* dialog */
+  dialog { background: var(--s1); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(640px, 94vw); }
+  dialog::backdrop { background: rgba(0,0,0,.7); }
+  .dlg-head { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .dlg-head h3 { margin: 0; font-size: 18px; }
+  .dlg-body { padding: 4px 18px 18px; max-height: 72vh; overflow: auto; }
+  .dlg-foot { display: flex; gap: 10px; justify-content: flex-end; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .step { display: flex; align-items: center; gap: 8px; margin: 18px 0 2px; font-weight: 700; }
+  .step i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; background: var(--red); display: inline-grid; place-items: center; font-size: 12px; }
+  .tier { display: flex; gap: 10px; padding: 10px; border-radius: 10px; background: var(--bg); margin-top: 8px; cursor: pointer; border: 1px solid transparent; }
+  .tier.on { border-color: var(--red); }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 10px 0 6px; }
+  .filters label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; margin: 0; }
+  .filters input, .filters select { min-width: 120px; }
+  .tablewrap { overflow-x: auto; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tbl th, .tbl td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .tbl tr.click { cursor: pointer; } .tbl tr.click:hover { background: rgba(255,255,255,.04); }
+  .tier input { margin-top: 4px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; padding: 9px; background: var(--bg); color: var(--muted); border: 0; cursor: pointer; }
+  .seg button.on { background: var(--red); color: #fff; }
+  .seg button:disabled { cursor: default; }
+  .file { display: flex; gap: 10px; align-items: center; background: var(--bg); padding: 10px; border-radius: 10px; }
+  .file .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  progress { width: 100%; height: 8px; accent-color: var(--red); }
+  .switch { display: flex; align-items: center; gap: 10px; margin-top: 8px; cursor: pointer; }
+  .switch input { width: 18px; height: 18px; accent-color: var(--red); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--s2); border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 10px; z-index: 50; max-width: 90vw; }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<section id="loginView" class="login hidden">
+  <div class="brand">STREAMS</div>
+  <h1>Admin sign in</h1>
+  <form id="loginForm">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <div style="height:16px"></div>
+    <button class="btn primary block" id="loginBtn" type="submit">Sign in</button>
+  </form>
+  <p class="small"><a href="#" id="forgotLink">Forgot password?</a></p>
+  <div id="loginMsg"></div>
+</section>
+
+<!-- ============ SET NEW PASSWORD (from reset email) ============ -->
+<section id="resetView" class="login hidden">
+  <div class="brand">STREAMS</div>
+  <h1>Set a new password</h1>
+  <form id="resetForm">
+    <label>New password (min 8 characters)</label>
+    <input id="newPw" type="password" autocomplete="new-password" required minlength="8">
+    <label>Repeat password</label>
+    <input id="newPw2" type="password" autocomplete="new-password" required minlength="8">
+    <div style="height:16px"></div>
+    <button class="btn primary block" type="submit">Save password</button>
+  </form>
+  <div id="resetMsg"></div>
+</section>
+
+<!-- ============ NOT ADMIN ============ -->
+<section id="deniedView" class="login hidden">
+  <div class="brand">STREAMS</div>
+  <h1>No admin access</h1>
+  <p class="muted">This account isn't on the admin list.</p>
+  <button class="btn" id="deniedOut">Sign out</button>
+</section>
+
+<!-- ============ APP ============ -->
+<div id="appView" class="hidden">
+  <header>
+    <div class="wrap">
+      <div class="top">
+        <span class="brand">STREAMS</span><span class="muted">Admin</span>
+        <div class="who small"><div id="whoEmail"></div><div class="muted" id="whoRole"></div></div>
+        <button class="btn" id="signOutBtn">Sign out</button>
+      </div>
+      <nav id="tabs"></nav>
+    </div>
+  </header>
+  <main class="wrap" id="main"></main>
+</div>
+
+<dialog id="dlg"><div class="dlg-head"><h3 id="dlgTitle"></h3><span class="spacer"></span><button class="iconbtn" id="dlgX" aria-label="Close">✕</button></div>
+  <div class="dlg-body" id="dlgBody"></div><div class="dlg-foot" id="dlgFoot"></div></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Streams web admin. Security is enforced by the database (row-level security
+// + server functions in streams-android/supabase/schema.sql), not by this page:
+// the anon key below is public by design and only an owner/manager login can
+// read or change admin data.
+// ---------------------------------------------------------------------------
+const SB_URL = "https://kpnfncydvpzlrcjplazh.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwbmZuY3lkdnB6bHJjanBsYXpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1NzMzODYsImV4cCI6MjEwNjE0OTM4Nn0.PUY0H_NywecExxdKCmUzwz_lhJKnI0jgjvRB546bQbI";
+const sb = supabase.createClient(SB_URL, SB_ANON);
+
+const TIERS = {
+  free: { label: "Free", help: "Free — anyone signed in can watch the full video." },
+  premium: { label: "Premium", help: "Premium — everyone sees it, but only subscribers watch in full. Others get the trailer (or a 30-second preview if there's no trailer)." },
+  hidden_premium: { label: "Exclusive", help: "Hidden Premium (Exclusive) — completely invisible to people without an active plan." },
+};
+const nextTier = t => t === "free" ? "premium" : t === "premium" ? "hidden_premium" : "free";
+
+let me = { email: "", role: null };
+let currentTab = "Overview";
+
+// ---------------------------------------------------------------- helpers
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const imgUrl = p => p ? `${SB_URL}/storage/v1/object/public/images/${p.split("/").map(encodeURIComponent).join("/")}` : "";
+const rupees = n => n == null ? "" : "₹" + (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(2));
+const when = iso => iso ? new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "";
+function friendly(e) {
+  const m = (e && (e.message || e.error_description || e.error)) || String(e || "Something went wrong");
+  if (/Invalid login credentials/i.test(m)) return "Wrong email or password.";
+  if (/rate limit/i.test(m)) return "Too many emails sent. Please wait about an hour and try again.";
+  if (/Payload too large|exceeded the maximum allowed size|413/i.test(m)) return "This file is too big for your Supabase plan (free plan: 50 MB per file).";
+  if (/Failed to fetch|NetworkError/i.test(m)) return "No internet connection.";
+  return m.split("\n")[0].slice(0, 200);
+}
+function toast(msg) {
+  document.querySelectorAll(".toast").forEach(x => x.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 3200);
+}
+async function must(p) { const r = await p; if (r.error) throw r.error; return r.data; }
+function show(view) { for (const v of ["loginView", "resetView", "deniedView", "appView"]) $(v).classList.toggle("hidden", v !== view); }
+
+// dialog
+const dlg = $("dlg");
+$("dlgX").onclick = () => dlg.close();
+function openDialog(title, bodyHtml, buttons) {
+  $("dlgTitle").textContent = title;
+  $("dlgBody").innerHTML = bodyHtml;
+  const foot = $("dlgFoot"); foot.innerHTML = "";
+  for (const b of buttons) {
+    const el = document.createElement("button");
+    el.className = "btn " + (b.cls || ""); el.textContent = b.label; el.onclick = () => b.onClick(el);
+    foot.appendChild(el);
+  }
+  dlg.showModal();
+}
+
+/** Upload straight to Storage so we can show real progress (big videos). Returns the storage path. */
+async function uploadFile(bucket, folder, file, onProgress) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error("Session expired — sign in again.");
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+  const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${SB_URL}/storage/v1/object/${bucket}/${path}`);
+    xhr.setRequestHeader("Authorization", "Bearer " + session.access_token);
+    xhr.setRequestHeader("apikey", SB_ANON);
+    xhr.setRequestHeader("x-upsert", "false");
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let msg = xhr.responseText;
+      try { const j = JSON.parse(xhr.responseText); msg = j.message || j.error || msg; } catch (_) {}
+      if (xhr.status === 413) msg = "Payload too large";
+      reject(new Error(msg || ("Upload failed (" + xhr.status + ")")));
+    };
+    xhr.onerror = () => reject(new Error("Failed to fetch"));
+    xhr.send(file);
+  });
+  return path;
+}
+function videoDuration(file) {
+  return new Promise(res => {
+    const v = document.createElement("video"); v.preload = "metadata";
+    v.onloadedmetadata = () => { URL.revokeObjectURL(v.src); res(isFinite(v.duration) ? Math.round(v.duration) : null); };
+    v.onerror = () => res(null);
+    v.src = URL.createObjectURL(file);
+  });
+}
+
+// ---------------------------------------------------------------- auth
+$("loginForm").onsubmit = async e => {
+  e.preventDefault();
+  const btn = $("loginBtn"); btn.disabled = true; $("loginMsg").innerHTML = "";
+  try {
+    await must(sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value }));
+    await enter();
+  } catch (err) { $("loginMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; }
+  btn.disabled = false;
+};
+$("forgotLink").onclick = async e => {
+  e.preventDefault();
+  const email = $("email").value.trim();
+  if (!email.includes("@")) { $("loginMsg").innerHTML = `<div class="err">Type your email above first.</div>`; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  $("loginMsg").innerHTML = error ? `<div class="err">${esc(friendly(error))}</div>`
+    : `<div class="ok">If that email has an account, a reset link is on its way. Open it on this computer.</div>`;
+};
+$("resetForm").onsubmit = async e => {
+  e.preventDefault();
+  if ($("newPw").value !== $("newPw2").value) { $("resetMsg").innerHTML = `<div class="err">Passwords don't match.</div>`; return; }
+  try {
+    await must(sb.auth.updateUser({ password: $("newPw").value }));
+    history.replaceState(null, "", location.pathname);
+    await enter();
+  } catch (err) { $("resetMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; }
+};
+async function signOut() { await sb.auth.signOut(); me = { email: "", role: null }; show("loginView"); }
+$("signOutBtn").onclick = signOut;
+$("deniedOut").onclick = signOut;
+
+async function enter() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { show("loginView"); return; }
+  const role = await must(sb.rpc("my_admin_role"));
+  if (!role) {
+    // Never leave a non-admin session active on the admin page.
+    await sb.auth.signOut();
+    show("loginView");
+    $("loginMsg").innerHTML = `<div class="err">This account doesn't have admin access.</div>`;
+    return;
+  }
+  me = { email: user.email, role };
+  $("whoEmail").textContent = user.email;
+  $("whoRole").textContent = role === "owner" ? "Owner" : "Manager";
+  show("appView");
+  renderTabs();
+}
+
+sb.auth.onAuthStateChange(evt => { if (evt === "PASSWORD_RECOVERY") show("resetView"); });
+
+// ---------------------------------------------------------------- tabs
+function tabList() {
+  const t = ["Overview", "Attribution", "Payments", "Content", "Channels", "Campaigns"];
+  if (me.role === "owner") t.push("Team", "Settings");
+  return t;
+}
+function renderTabs() {
+  const nav = $("tabs"); nav.innerHTML = "";
+  for (const name of tabList()) {
+    const b = document.createElement("button");
+    b.textContent = name; b.className = name === currentTab ? "on" : "";
+    b.onclick = () => { currentTab = name; renderTabs(); };
+    nav.appendChild(b);
+  }
+  if (!tabList().includes(currentTab)) currentTab = "Overview";
+  const main = $("main");
+  main.innerHTML = `<div class="empty">Loading…</div>`;
+  const fn = { Overview, Attribution, Payments, Content, Channels, Campaigns, Team, Settings }[currentTab];
+  fn(main).catch(err => { main.innerHTML = `<div class="err">${esc(friendly(err))}</div> <button class="btn" onclick="renderTabs()">Try again</button>`; });
+}
+
+// ---------------------------------------------------------------- Overview
+async function Overview(main) {
+  const s = await must(sb.rpc("admin_stats"));
+  const cards = [
+    ["Total videos", s.total_videos], ["Exclusive videos", s.exclusive_videos],
+    ["Total views", s.total_views], ["Preview views", s.preview_views],
+    ["Paying subscribers", s.paying_subscribers], ["Expired subscribers", s.expired_subscribers],
+    ["Payments waiting", s.pending_payments],
+  ];
+  main.innerHTML = `<h2>Overview</h2><div class="grid">${cards.map(([l, v]) =>
+    `<div class="stat"><b>${esc(v)}</b><span class="muted small">${esc(l)}</span></div>`).join("")}</div>`;
+}
+
+// ---------------------------------------------------------------- Attribution
+const SRC_LABEL = { meta: "Meta", organic: "Organic", direct: "Direct", unknown: "Unknown", other: "Other" };
+const srcName = s => SRC_LABEL[s] || "Unknown";
+const pct = (a, b) => b > 0 ? Math.round(a * 100 / b) + "%" : "—";
+let attrF = { from: "", to: "", source: "", campaign: "", plan: "", purchased: "", search: "" };
+
+async function Attribution(main) {
+  const plans = await must(sb.from("subscription_plans").select("id,name").order("sort_order"));
+  const iso = d => d ? new Date(d + "T00:00:00").toISOString() : null;
+  const isoEnd = d => d ? new Date(new Date(d + "T00:00:00").getTime() + 86400000).toISOString() : null;
+  const f = attrF;
+  const [rep, users] = await Promise.all([
+    must(sb.rpc("admin_attribution_report", { p_from: iso(f.from), p_to: isoEnd(f.to), p_source: f.source || null,
+      p_campaign: f.campaign || null, p_plan: f.plan || null })),
+    must(sb.rpc("admin_attribution_users", { p_from: iso(f.from), p_to: isoEnd(f.to), p_source: f.source || null,
+      p_campaign: f.campaign || null, p_purchased: f.purchased === "" ? null : f.purchased === "yes",
+      p_plan: f.plan || null, p_search: f.search || null, p_limit: 300 })),
+  ]);
+  const opt = (v, l, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(l)}</option>`;
+  const rowHtml = r => `<tr ${r.campaign ? `class="click" data-c="${esc(r.campaign)}"` : ""}>
+      <td>${esc(r.campaign || srcName(r.source))}${r.campaign ? `<div class="muted small">${esc(srcName(r.source))}</div>` : ""}</td>
+      <td>${r.installs}</td><td>${r.registrations}</td><td>${r.purchasers}</td><td><b>${rupees(r.revenue)}</b></td>
+      <td class="small">${pct(r.registrations, r.installs)} → ${pct(r.purchasers, r.registrations)}</td></tr>`;
+  const head = first => `<tr><th>${first}</th><th>Installs</th><th>Registrations</th><th>Purchasers</th><th>Revenue</th><th>Install→Reg→Purchase</th></tr>`;
+  main.innerHTML = `<h2>Attribution</h2>
+    <p class="muted small">Where users came from (Google Play Install Referrer), what they bought and how campaigns perform.
+      Installs come only from Play Store installs; APKs shared directly show as Unknown. Purchases count verified (approved) payments only.</p>
+    <div class="filters">
+      <label>From <input type="date" id="aFrom" value="${esc(f.from)}"></label>
+      <label>To <input type="date" id="aTo" value="${esc(f.to)}"></label>
+      <label>Source <select id="aSrc">${opt("", "All", f.source)}${Object.entries(SRC_LABEL).map(([k, v]) => opt(k, v, f.source)).join("")}</select></label>
+      <label>Campaign <input type="text" id="aCamp" value="${esc(f.campaign)}" placeholder="any"></label>
+      <label>Plan <select id="aPlan">${opt("", "All", f.plan)}${plans.map(p => opt(p.id, p.name, f.plan)).join("")}</select></label>
+      <label>Purchase <select id="aBuy">${opt("", "Everyone", f.purchased)}${opt("yes", "Purchased", f.purchased)}${opt("no", "Not purchased", f.purchased)}</select></label>
+      <label>E-mail <input type="text" id="aSearch" value="${esc(f.search)}" placeholder="search"></label>
+      <button class="btn primary" id="aApply">Apply</button> <button class="btn" id="aReset">Reset</button>
+    </div>
+    <h3>By source</h3>
+    <div class="tablewrap"><table class="tbl">${head("Source")}${rep.by_source.map(rowHtml).join("") || `<tr><td colspan="6" class="muted">No data in this range yet.</td></tr>`}</table></div>
+    <h3>Campaigns</h3>
+    <div class="tablewrap"><table class="tbl" id="campTbl">${head("Campaign")}${rep.campaigns.map(rowHtml).join("") || `<tr><td colspan="6" class="muted">No campaign data yet — it appears when people install from a tracked Play Store link.</td></tr>`}</table></div>
+    <h3>Users <span class="muted small">(${users.length}${users.length >= 300 ? "+" : ""})</span></h3>
+    <div class="tablewrap"><table class="tbl" id="userTbl"><tr><th>User</th><th>Joined</th><th>Source</th><th>Campaign</th><th>Plan</th><th>Revenue</th></tr>
+      ${users.map(u => `<tr class="click" data-u="${esc(u.user_id)}"><td>${esc(u.email || u.user_id)}</td><td class="small">${esc(when(u.registered_at))}</td>
+        <td>${esc(srcName(u.source))}</td><td>${esc(u.campaign || "—")}</td>
+        <td>${esc(u.plan_name || "—")}${u.sub_status ? `<div class="muted small">${esc(u.sub_status)}</div>` : ""}</td><td>${rupees(u.revenue)}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="muted">No users match these filters.</td></tr>`}</table></div>
+    <h3>Meta campaign link builder</h3>
+    <div style="max-width:560px">
+      <p class="muted small">Use the generated Play Store link as the destination of a Meta ad. Google Play passes the
+        <code>referrer</code> part to the app after install; the app reports it and the server records the campaign.</p>
+      <label>Campaign (utm_campaign)</label><input type="text" id="lCamp" placeholder="streams_special">
+      <label>Ad / content (utm_content)</label><input type="text" id="lCont" placeholder="ad_01">
+      <label>Source</label><select id="lSrc">${opt("meta", "meta", "meta")}${opt("facebook", "facebook", "")}${opt("instagram", "instagram", "")}</select>
+      <div style="height:10px"></div><button class="btn primary" id="lMake">Create link</button>
+      <textarea id="lOut" readonly rows="3" style="width:100%;margin-top:10px" placeholder="Your link appears here"></textarea>
+    </div>`;
+
+  const read = () => ({ from: $("aFrom").value, to: $("aTo").value, source: $("aSrc").value, campaign: $("aCamp").value.trim(),
+    plan: $("aPlan").value, purchased: $("aBuy").value, search: $("aSearch").value.trim() });
+  $("aApply").onclick = () => { attrF = read(); renderTabs(); };
+  $("aReset").onclick = () => { attrF = { from: "", to: "", source: "", campaign: "", plan: "", purchased: "", search: "" }; renderTabs(); };
+  main.querySelectorAll("#campTbl tr[data-c]").forEach(tr => tr.onclick = () => { attrF = { ...read(), campaign: tr.dataset.c }; renderTabs(); });
+  main.querySelectorAll("#userTbl tr[data-u]").forEach(tr => tr.onclick = () => userDetail(tr.dataset.u));
+  $("lMake").onclick = () => {
+    const clean = v => v.trim().replace(/[^A-Za-z0-9_.-]/g, "_");
+    const camp = clean($("lCamp").value), cont = clean($("lCont").value);
+    if (!camp) { toast("Enter a campaign name"); return; }
+    const ref = `utm_source=${$("lSrc").value}&utm_medium=paid_social&utm_campaign=${camp}` + (cont ? `&utm_content=${cont}` : "");
+    $("lOut").value = `https://play.google.com/store/apps/details?id=com.streams.app&referrer=${encodeURIComponent(ref)}`;
+    $("lOut").select();
+  };
+}
+
+async function userDetail(id) {
+  openDialog("User", `<div class="empty">Loading…</div>`, [{ label: "Close", onClick: () => dlg.close() }]);
+  try {
+    const d = await must(sb.rpc("admin_user_detail", { p_user_id: id }));
+    const a = d.attribution || {}, s = d.subscription || {};
+    const line = (k, v) => `<div class="row small"><span class="muted" style="min-width:130px">${esc(k)}</span><span>${esc(v ?? "—")}</span></div>`;
+    $("dlgBody").innerHTML =
+      line("User ID", d.user_id) + line("E-mail", d.email) + line("Registered", when(d.registered_at)) +
+      line("Acquisition", srcName(a.first_touch_source)) + line("Campaign", a.first_touch_campaign) +
+      line("Ad / content", a.first_touch_content) + line("First touch", when(a.first_touch_at)) +
+      line("Last touch", a.last_touch_at ? `${when(a.last_touch_at)} · ${srcName(a.last_touch_source)}` : null) +
+      line("Subscription", s.status) + line("Current plan", s.plan) + line("Expires", when(s.expires_at)) +
+      line("Total revenue", rupees(d.revenue)) +
+      `<h3 style="margin-top:14px">Purchases</h3>` +
+      (d.payments.length ? d.payments.map(p => `<div class="small">${esc(when(p.created_at))} · ${esc(p.plan)} · ${rupees(p.amount)} ·
+        <b>${esc(p.status)}</b>${p.attribution_source ? ` · ${esc(srcName(p.attribution_source))}${p.attribution_campaign ? " / " + esc(p.attribution_campaign) : ""}` : ""}
+        <span class="muted">· UTR ${esc(p.utr)}</span></div>`).join("") : `<div class="muted small">None</div>`);
+  } catch (err) { $("dlgBody").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; }
+}
+
+// ---------------------------------------------------------------- Payments
+let payFilter = null;
+// "txnId=..&Status=FAILURE&responseCode=ZM" → "FAILURE (ZM)"
+function upiStatus(resp) {
+  if (!resp) return "";
+  const f = {};
+  for (const kv of resp.split("&")) { const i = kv.indexOf("="); if (i > 0) f[kv.slice(0, i).toLowerCase()] = kv.slice(i + 1); }
+  const st = (f.status || "").toUpperCase().replace(/_/g, " ");
+  if (!st) return "";
+  return f.responsecode && st !== "NO RESPONSE" ? `${st} (${f.responsecode})` : st;
+}
+async function Payments(main) {
+  const filters = [["All", null], ["Pending", "initiated"], ["Success", "approved"], ["Failed", "failed"], ["Cancelled", "cancelled"], ["UTR review", "pending"], ["Rejected", "rejected"], ["Revoked", "revoked"]];
+  let q = sb.from("payments").select("*").order("created_at", { ascending: false }).limit(300);
+  if (payFilter) q = q.eq("status", payFilter);
+  const rows = await must(q);
+  main.innerHTML = `<h2>Payments</h2>
+    <p class="muted small">A subscription is activated only after the payment is <b>verified</b> (you match it with your bank statement and tap <b>Mark as paid</b> with the UTR, or a bank/provider status API). What the UPI app says is stored for reference only — it is never treated as proof. “Pending” orders wait for that verification; “UTR review” holds UTRs customers typed by hand: check them and approve or reject.</p>
+    <div class="chips">${filters.map(([l, v]) => `<button class="chip ${v === payFilter ? "on" : ""}" data-f="${v ?? ""}">${l}</button>`).join("")}</div>
+    <div class="list" id="payList"></div>`;
+  main.querySelectorAll(".chip").forEach(c => c.onclick = () => { payFilter = c.dataset.f || null; renderTabs(); });
+  const list = $("payList");
+  if (!rows.length) { list.innerHTML = `<div class="empty">Nothing here.</div>`; return; }
+  const label = p => ({ initiated: p.client_status ? "PENDING" : "CREATED", approved: "SUCCESS", failed: "FAILED", cancelled: "CANCELLED", pending: "UTR REVIEW", rejected: "REJECTED", revoked: "REVOKED" })[p.status] || String(p.status).toUpperCase();
+  for (const p of rows) {
+    const el = document.createElement("div"); el.className = "item";
+    const utr = p.txn_id || p.reference;
+    const statusColor = p.status === "approved" ? "var(--green)" : (p.status === "pending" || p.status === "initiated") ? "var(--amber)" : "var(--err)";
+    el.innerHTML = `<div class="body">
+        <div class="row"><span class="title">${esc(p.user_email || "—")}</span><span class="spacer"></span><b>${rupees(p.amount)}</b></div>
+        <div class="muted small">${esc(p.plan_name)} · Order <b>${esc(p.reference)}</b></div>
+        <div class="small" style="color:${statusColor}"><b>${esc(label(p))}</b>${p.reviewed_by ? " · by " + esc(p.reviewed_by) : ""}</div>
+        ${p.txn_id ? `<div class="utr">UTR / provider txn: ${esc(p.txn_id)}</div>` : ""}
+        ${upiStatus(p.upi_response) ? `<div class="small">UPI app said: <b>${esc(upiStatus(p.upi_response))}</b> <span class="muted">(not proof of payment)</span></div>` : ""}
+        <div class="muted small">Created ${when(p.created_at)}${p.updated_at ? " · Updated " + when(p.updated_at) : ""}</div>
+        ${p.verified_at ? `<div class="small" style="color:var(--green)">Verified ${when(p.verified_at)} · ${esc(p.verification_source || "—")}</div>` : ""}
+        ${p.status === "initiated" ? `<div class="small" style="color:var(--amber)">Waiting for verified payment — not activated</div>` : ""}
+        ${(p.status === "rejected" || p.status === "revoked") && p.admin_note ? `<div class="small muted">Note: ${esc(p.admin_note)}</div>` : ""}
+      </div>
+      ${p.status === "pending" ? `<div class="row"><button class="btn primary" data-a="approve">Approve</button><button class="btn" data-a="reject">Reject</button></div>` : ""}
+      ${p.status === "approved" ? `<div class="row"><button class="btn" data-a="revoke">Revoke</button></div>` : ""}
+      ${["initiated", "failed", "cancelled"].includes(p.status) ? `<div class="row"><button class="btn" data-a="markpaid">Mark as paid</button></div>` : ""}`;
+    const ap = el.querySelector('[data-a="approve"]');
+    if (ap) ap.onclick = async () => {
+      if (!confirm(`Approve ${rupees(p.amount)} from ${p.user_email} (UTR ${p.reference})?`)) return;
+      ap.disabled = true;
+      try { await must(sb.rpc("approve_payment", { p_payment_id: p.id })); toast("Approved — subscription extended"); }
+      catch (err) { toast(friendly(err)); }
+      renderTabs();
+    };
+    const rj = el.querySelector('[data-a="reject"]');
+    if (rj) rj.onclick = () => openDialog("Reject payment?",
+      `<p class="muted">UTR ${esc(p.reference)} · ${rupees(p.amount)} · ${esc(p.user_email)}</p>
+       <label>Reason (shown to the customer)</label><input type="text" id="rejNote"><div id="rejErr"></div>`,
+      [{ label: "Cancel", onClick: () => dlg.close() },
+       { label: "Reject", cls: "danger", onClick: async btn => {
+          const note = $("rejNote").value.trim();
+          if (note.length < 3) { $("rejErr").innerHTML = `<div class="err">Please type a short reason.</div>`; return; }
+          btn.disabled = true;
+          try { await must(sb.rpc("reject_payment", { p_payment_id: p.id, p_note: note })); dlg.close(); renderTabs(); }
+          catch (err) { $("rejErr").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; btn.disabled = false; }
+        } }]);
+    const rv = el.querySelector('[data-a="revoke"]');
+    if (rv) rv.onclick = () => openDialog("Revoke payment?",
+      `<p class="muted">UTR ${esc(utr)} · ${rupees(p.amount)} · ${esc(p.user_email)}<br>The plan's days are taken back from this customer.</p>
+       <label>Reason (shown to the customer)</label><input type="text" id="rvNote"><div id="rvErr"></div>`,
+      [{ label: "Cancel", onClick: () => dlg.close() },
+       { label: "Revoke", cls: "danger", onClick: async btn => {
+          const note = $("rvNote").value.trim();
+          if (note.length < 3) { $("rvErr").innerHTML = `<div class="err">Please type a short reason.</div>`; return; }
+          btn.disabled = true;
+          try { await must(sb.rpc("revoke_payment", { p_payment_id: p.id, p_note: note })); dlg.close(); renderTabs(); }
+          catch (err) { $("rvErr").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; btn.disabled = false; }
+        } }]);
+    const mp = el.querySelector('[data-a="markpaid"]');
+    if (mp) mp.onclick = () => openDialog("Mark as paid?",
+      `<p class="muted">Order ${esc(p.reference)} · ${rupees(p.amount)} · ${esc(p.user_email || "")}<br>Only do this if you can see exactly ${rupees(p.amount)} credited in your bank statement. Type that credit's UTR — each UTR can be used once.</p>
+       <label>Bank UTR (12 digits)</label><input type="text" id="mpUtr" value="${esc(p.txn_id || "")}"><div id="mpErr"></div>`,
+      [{ label: "Cancel", onClick: () => dlg.close() },
+       { label: "Activate plan", cls: "primary", onClick: async btn => {
+          btn.disabled = true;
+          try { await must(sb.rpc("admin_verify_payment", { p_payment_id: p.id, p_utr: $("mpUtr").value.trim() })); dlg.close(); toast("Verified — plan activated"); renderTabs(); }
+          catch (err) { $("mpErr").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; btn.disabled = false; }
+        } }]);
+    list.appendChild(el);
+  }
+}
+
+// ---------------------------------------------------------------- Content
+async function Content(main) {
+  const [titles, channels] = await Promise.all([
+    must(sb.from("titles").select("*").order("created_at", { ascending: false })),
+    must(sb.from("channels").select("*").order("sort_order")),
+  ]);
+  const chName = id => channels.find(c => c.id === id)?.name || "No channel";
+  main.innerHTML = `<div class="row" style="margin-bottom:14px"><h2 style="margin:0">Content</h2><span class="spacer"></span>
+      <button class="btn primary" id="newTitle">＋ Upload new</button></div>
+    <p class="muted small">Tap <b>LIVE/DRAFT</b> to publish or hide · tap the tier badge to cycle Free → Premium → Exclusive · ☆ features a title on Home.</p>
+    <div class="list" id="titleList"></div>`;
+  $("newTitle").onclick = () => editTitle(null, channels);
+  const list = $("titleList");
+  if (!titles.length) { list.innerHTML = `<div class="empty">No titles yet. Click “Upload new” to add your first video.</div>`; return; }
+  for (const t of titles) {
+    const el = document.createElement("div"); el.className = "item";
+    el.innerHTML = `<div class="thumb" style="background-image:url('${esc(imgUrl(t.cover_path))}')"></div>
+      <div class="body">
+        <div class="title">${esc(t.name)}</div>
+        <div class="muted small">${t.kind === "series" ? "Series" : "Movie"} · ${esc(chName(t.channel_id))} · ${t.view_count ?? 0} views</div>
+        <div class="row" style="margin-top:6px">
+          <span class="badge click ${t.published ? "live" : "draft"}" data-a="pub">${t.published ? "LIVE" : "DRAFT"}</span>
+          <span class="badge click ${t.tier}" data-a="tier">${TIERS[t.tier].label.toUpperCase()}</span>
+          <span class="badge click ${(t.tags || []).includes("STREAMS_SPECIAL") ? "premium" : "draft"}" data-a="special"
+                title="STREAMS_SPECIAL: shown only to people who installed from a Meta ad">${(t.tags || []).includes("STREAMS_SPECIAL") ? "★ STREAMS_SPECIAL" : "+ SPECIAL"}</span>
+        </div>
+      </div>
+      <button class="iconbtn" data-a="feat" title="Feature on Home">${t.featured ? "★" : "☆"}</button>
+      <button class="iconbtn" data-a="edit" title="Edit">✎</button>
+      <button class="iconbtn" data-a="del" title="Delete" style="color:var(--err)">🗑</button>`;
+    const act = async (fn) => { try { await fn(); } catch (err) { toast(friendly(err)); } renderTabs(); };
+    el.querySelector('[data-a="pub"]').onclick = () => act(() => must(sb.from("titles").update({ published: !t.published }).eq("id", t.id)));
+    el.querySelector('[data-a="tier"]').onclick = () => act(() => must(sb.from("titles").update({ tier: nextTier(t.tier) }).eq("id", t.id)));
+    el.querySelector('[data-a="special"]').onclick = () => act(() => {
+      const tags = (t.tags || []).filter(x => x !== "STREAMS_SPECIAL");
+      if (!(t.tags || []).includes("STREAMS_SPECIAL")) tags.push("STREAMS_SPECIAL");
+      return must(sb.from("titles").update({ tags }).eq("id", t.id));
+    });
+    el.querySelector('[data-a="feat"]').onclick = () => act(() => must(sb.from("titles").update({ featured: !t.featured }).eq("id", t.id)));
+    el.querySelector('[data-a="edit"]').onclick = () => editTitle(t, channels);
+    el.querySelector('[data-a="del"]').onclick = () => {
+      if (!confirm(`Delete "${t.name}"? This removes the title, its episodes and video files. It can't be undone.`)) return;
+      act(async () => {
+        const eps = await must(sb.from("episodes").select("video_path").eq("title_id", t.id));
+        await must(sb.from("titles").delete().eq("id", t.id));
+        const vids = [t.video_path, t.trailer_path, ...eps.map(e => e.video_path)].filter(Boolean);
+        if (vids.length) await sb.storage.from("videos").remove(vids);
+        if (t.cover_path) await sb.storage.from("images").remove([t.cover_path]);
+        toast("Deleted");
+      });
+    };
+    list.appendChild(el);
+  }
+}
+
+function editTitle(t, channels) {
+  const isNew = !t;
+  const st = { kind: t?.kind || "movie", tier: t?.tier || "free" };
+  const fileRow = (id, label, current, accept) => `
+    <div class="file"><div class="name small" id="${id}Name">${current ? "Current file kept" : "No file chosen"}</div>
+      <input type="file" id="${id}" accept="${accept}" class="hidden"><button class="btn" type="button" onclick="document.getElementById('${id}').click()">${label}</button></div>
+    <progress id="${id}Prog" value="0" max="1" class="hidden"></progress>`;
+  openDialog(isNew ? "Upload new title" : "Edit title", `
+    <div class="step"><i>1</i>Type</div>
+    <div class="seg" id="kindSeg">
+      <button type="button" data-k="movie" ${isNew ? "" : "disabled"}>Single video</button>
+      <button type="button" data-k="series" ${isNew ? "" : "disabled"}>Series with episodes</button></div>
+    <div class="step"><i>2</i>Name and short description</div>
+    <label>Name</label><input type="text" id="fName" value="${esc(t?.name)}">
+    <label>Short description</label><textarea id="fDesc">${esc(t?.description)}</textarea>
+    <div class="step"><i>3</i>Channel</div>
+    <select id="fChannel"><option value="">No channel</option>${channels.map(c =>
+      `<option value="${c.id}" ${t?.channel_id === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+    <div class="step"><i>4</i>Thumbnail image</div>${fileRow("fCover", "Choose image", t?.cover_path, "image/*")}
+    <div class="step"><i>5</i>Trailer / preview clip (optional)</div>${fileRow("fTrailer", "Choose trailer", t?.trailer_path, "video/*")}
+    <div class="step" id="videoStep"><i>6</i><span id="videoLabel"></span></div>
+    <div id="videoBox">${fileRow("fVideo", "Choose video", t?.video_path, "video/*")}</div>
+    <div class="step"><i>7</i>Who can watch</div>
+    <div id="tierBox">${Object.entries(TIERS).map(([k, v]) =>
+      `<div class="tier" data-t="${k}"><input type="radio" name="tier" value="${k}"><div class="small">${esc(v.help)}</div></div>`).join("")}</div>
+    <div class="step"><i>8</i>Tags</div>
+    <label class="switch"><input type="checkbox" id="fSpecial" ${(t?.tags || []).includes("STREAMS_SPECIAL") ? "checked" : ""}><span>STREAMS_SPECIAL — shown only to people who installed from a Meta ad</span></label>
+    <label class="switch"><input type="checkbox" id="fNew" ${(t?.tags || []).includes("NEW") ? "checked" : ""}><span>NEW</span></label>
+    <div class="step"><i>9</i>Publish</div>
+    <label class="switch"><input type="checkbox" id="fPub" ${t?.published ? "checked" : ""}><span id="pubLabel"></span></label>
+    <p class="muted small">Free Supabase plan: max 50 MB per file. Upgrade to Pro for full-length videos.</p>
+    <div id="fMsg"></div>
+    ${!isNew && t.kind === "series" ? `<hr style="border-color:var(--line);margin:22px 0 6px"><h3>Episodes</h3><div id="epBox" class="list"></div>` : ""}`,
+    [{ label: "Cancel", onClick: () => dlg.close() },
+     { label: isNew ? "Upload & save" : "Save changes", cls: "primary", onClick: btn => saveTitle(btn, t, st) }]);
+
+  const syncKind = () => {
+    document.querySelectorAll("#kindSeg button").forEach(b => b.classList.toggle("on", b.dataset.k === st.kind));
+    $("videoLabel").textContent = st.kind === "series"
+      ? (isNew ? "Episode 1 video (required)" : "Episodes — manage them below")
+      : "Main video" + (isNew ? " (required)" : "");
+    $("videoBox").classList.toggle("hidden", !isNew && st.kind === "series");
+  };
+  document.querySelectorAll("#kindSeg button").forEach(b => b.onclick = () => { st.kind = b.dataset.k; syncKind(); });
+  syncKind();
+  const syncTier = () => document.querySelectorAll("#tierBox .tier").forEach(d => {
+    d.classList.toggle("on", d.dataset.t === st.tier); d.querySelector("input").checked = d.dataset.t === st.tier;
+  });
+  document.querySelectorAll("#tierBox .tier").forEach(d => d.onclick = () => { st.tier = d.dataset.t; syncTier(); });
+  syncTier();
+  const syncPub = () => $("pubLabel").textContent = $("fPub").checked ? "LIVE — visible in the app" : "DRAFT — hidden from customers";
+  $("fPub").onchange = syncPub; syncPub();
+  for (const id of ["fCover", "fTrailer", "fVideo"]) {
+    $(id).onchange = () => { const f = $(id).files[0]; $(id + "Name").textContent = f ? `${f.name} (${(f.size / 1048576).toFixed(1)} MB)` : "No file chosen"; };
+  }
+  if (!isNew && t.kind === "series") loadEpisodes(t);
+}
+
+async function saveTitle(btn, t, st) {
+  const isNew = !t;
+  const msg = $("fMsg"); msg.innerHTML = "";
+  const name = $("fName").value.trim();
+  const cover = $("fCover").files[0], trailer = $("fTrailer").files[0], video = $("fVideo").files[0];
+  if (!name) { msg.innerHTML = `<div class="err">Please enter a name.</div>`; return; }
+  if (isNew && !video) { msg.innerHTML = `<div class="err">Please choose the video file.</div>`; return; }
+  btn.disabled = true;
+  const step = (id, text) => { msg.innerHTML = `<div class="muted">${esc(text)}</div>`; if (id) $(id + "Prog").classList.remove("hidden"); };
+  try {
+    const fields = {
+      kind: st.kind, name, description: $("fDesc").value.trim(),
+      channel_id: $("fChannel").value || null, tier: st.tier, published: $("fPub").checked,
+      tags: [...($("fSpecial").checked ? ["STREAMS_SPECIAL"] : []), ...($("fNew").checked ? ["NEW"] : [])],
+    };
+    if (cover) { step("fCover", "Uploading thumbnail…"); fields.cover_path = await uploadFile("images", "covers", cover, v => $("fCoverProg").value = v); }
+    if (trailer) { step("fTrailer", "Uploading trailer…"); fields.trailer_path = await uploadFile("videos", "trailers", trailer, v => $("fTrailerProg").value = v); }
+    let videoPath = null, duration = null;
+    if (video) {
+      step("fVideo", "Uploading video… (large files take a while — keep this tab open)");
+      duration = await videoDuration(video);
+      videoPath = await uploadFile("videos", "videos", video, v => $("fVideoProg").value = v);
+      if (st.kind === "movie") { fields.video_path = videoPath; if (duration) fields.duration_seconds = duration; }
+    }
+    step(null, "Saving…");
+    let id = t?.id;
+    if (isNew) id = (await must(sb.from("titles").insert(fields).select("id").single())).id;
+    else await must(sb.from("titles").update(fields).eq("id", id));
+    if (isNew && st.kind === "series" && videoPath) {
+      await must(sb.from("episodes").insert({ title_id: id, episode_number: 1, name: "Episode 1", video_path: videoPath, duration_seconds: duration }));
+    }
+    dlg.close();
+    toast(fields.published ? "Saved and live" : "Saved as draft");
+    renderTabs();
+  } catch (err) {
+    msg.innerHTML = `<div class="err">${esc(friendly(err))}</div>`;
+    btn.disabled = false;
+  }
+}
+
+async function loadEpisodes(t) {
+  const box = $("epBox"); if (!box) return;
+  const eps = await must(sb.from("episodes").select("*").eq("title_id", t.id).order("episode_number"));
+  const next = (eps.at(-1)?.episode_number || 0) + 1;
+  box.innerHTML = eps.map(e => `<div class="item" style="background:var(--bg)"><div class="body"><div class="title">${e.episode_number}. ${esc(e.name)}</div></div>
+      <button class="iconbtn" data-del="${e.id}" style="color:var(--err)" title="Delete episode">🗑</button></div>`).join("")
+    + `<div><div class="step" style="margin-top:10px">Add episode ${next}</div>
+        <label>Episode name</label><input type="text" id="epName">
+        <div style="height:8px"></div>
+        <div class="file"><div class="name small" id="epFileName">No file chosen</div><input type="file" id="epFile" accept="video/*" class="hidden">
+          <button class="btn" type="button" onclick="document.getElementById('epFile').click()">Choose video</button></div>
+        <progress id="epProg" value="0" max="1" class="hidden"></progress>
+        <div style="height:8px"></div><button class="btn primary" id="epAdd" type="button">Upload episode</button><div id="epMsg"></div></div>`;
+  $("epFile").onchange = () => { const f = $("epFile").files[0]; $("epFileName").textContent = f ? `${f.name} (${(f.size / 1048576).toFixed(1)} MB)` : "No file chosen"; };
+  box.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const e = eps.find(x => x.id === b.dataset.del);
+    if (!confirm(`Delete episode ${e.episode_number}?`)) return;
+    try { await must(sb.from("episodes").delete().eq("id", e.id)); await sb.storage.from("videos").remove([e.video_path]); }
+    catch (err) { toast(friendly(err)); }
+    loadEpisodes(t);
+  });
+  $("epAdd").onclick = async () => {
+    const name = $("epName").value.trim(), file = $("epFile").files[0];
+    if (!name || !file) { $("epMsg").innerHTML = `<div class="err">Enter a name and choose a video.</div>`; return; }
+    $("epAdd").disabled = true; $("epProg").classList.remove("hidden");
+    $("epMsg").innerHTML = `<div class="muted">Uploading…</div>`;
+    try {
+      const duration = await videoDuration(file);
+      const path = await uploadFile("videos", `episodes/${t.id}`, file, v => $("epProg").value = v);
+      await must(sb.from("episodes").insert({ title_id: t.id, episode_number: next, name, video_path: path, duration_seconds: duration }));
+      toast(`Episode ${next} added`);
+      loadEpisodes(t);
+    } catch (err) { $("epMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; $("epAdd").disabled = false; }
+  };
+}
+
+// ---------------------------------------------------------------- Channels
+async function Channels(main) {
+  const rows = await must(sb.from("channels").select("*").order("sort_order").order("created_at"));
+  simpleList(main, {
+    heading: "Channels", addLabel: "New channel", rows,
+    describe: c => ({ title: c.name, sub: c.description || "No description", badge: c.is_premium ? "PREMIUM" : "" }),
+    onAdd: () => channelDialog(null),
+    onEdit: c => channelDialog(c),
+    onDelete: async c => {
+      if (!confirm(`Delete channel "${c.name}"? Its titles stay, but become "No channel".`)) return;
+      await must(sb.from("channels").delete().eq("id", c.id));
+    },
+  });
+}
+function channelDialog(c) {
+  openDialog(c ? "Edit channel" : "New channel", `
+    <label>Name</label><input type="text" id="cName" value="${esc(c?.name)}">
+    <label>Short description</label><textarea id="cDesc">${esc(c?.description)}</textarea>
+    <label>Order (lower shows first)</label><input type="text" id="cOrder" value="${esc(c?.sort_order ?? 0)}">
+    <label class="switch"><input type="checkbox" id="cPrem" ${c?.is_premium ? "checked" : ""}>Contains premium content</label><div id="cMsg"></div>`,
+    [{ label: "Cancel", onClick: () => dlg.close() },
+     { label: "Save", cls: "primary", onClick: async btn => {
+        const body = { name: $("cName").value.trim(), description: $("cDesc").value.trim(),
+          is_premium: $("cPrem").checked, sort_order: parseInt($("cOrder").value, 10) || 0 };
+        if (!body.name) { $("cMsg").innerHTML = `<div class="err">Please enter a name.</div>`; return; }
+        btn.disabled = true;
+        try { await must(c ? sb.from("channels").update(body).eq("id", c.id) : sb.from("channels").insert(body)); dlg.close(); renderTabs(); }
+        catch (err) { $("cMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; btn.disabled = false; }
+      } }]);
+}
+
+// ---------------------------------------------------------------- Campaigns
+async function Campaigns(main) {
+  const rows = await must(sb.from("campaigns").select("*").order("created_at", { ascending: false }));
+  simpleList(main, {
+    heading: "Campaigns", addLabel: "New campaign", rows,
+    note: "The newest active campaign shows as a banner at the top of Home in the app.",
+    describe: c => ({ title: c.name, sub: c.message || "—", badge: c.active ? "ACTIVE" : "OFF" }),
+    onAdd: () => campaignDialog(null),
+    onEdit: c => campaignDialog(c),
+    onDelete: async c => { if (confirm(`Delete "${c.name}"?`)) await must(sb.from("campaigns").delete().eq("id", c.id)); },
+  });
+}
+function campaignDialog(c) {
+  openDialog(c ? "Edit campaign" : "New campaign", `
+    <label>Headline</label><input type="text" id="kName" value="${esc(c?.name)}">
+    <label>Message</label><textarea id="kMsgTxt">${esc(c?.message)}</textarea>
+    <label class="switch"><input type="checkbox" id="kActive" ${c?.active ? "checked" : ""}>Show on Home</label><div id="kMsg"></div>`,
+    [{ label: "Cancel", onClick: () => dlg.close() },
+     { label: "Save", cls: "primary", onClick: async btn => {
+        const body = { name: $("kName").value.trim(), message: $("kMsgTxt").value.trim(), active: $("kActive").checked };
+        if (!body.name) { $("kMsg").innerHTML = `<div class="err">Please enter a headline.</div>`; return; }
+        btn.disabled = true;
+        try { await must(c ? sb.from("campaigns").update(body).eq("id", c.id) : sb.from("campaigns").insert(body)); dlg.close(); renderTabs(); }
+        catch (err) { $("kMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; btn.disabled = false; }
+      } }]);
+}
+
+// ---------------------------------------------------------------- Team (owner)
+async function Team(main) {
+  const rows = await must(sb.from("admin_emails").select("*").order("created_at"));
+  simpleList(main, {
+    heading: "Team", addLabel: "Add manager", rows,
+    note: "Managers can upload content and verify payments, but can't manage the team or payment settings. After you add them, they sign in on this page (use “Forgot password?” to set their first password).",
+    describe: a => ({ title: a.email, sub: a.role === "owner" ? "Owner" : "Manager", badge: "" }),
+    canDelete: a => a.role === "manager",
+    onDelete: async a => { if (confirm(`Remove ${a.email}?`)) await must(sb.from("admin_emails").delete().eq("email", a.email)); },
+    onAdd: () => openDialog("Add manager", `<label>Email</label><input type="email" id="mEmail"><div id="mMsg"></div>`,
+      [{ label: "Cancel", onClick: () => dlg.close() },
+       { label: "Add", cls: "primary", onClick: async btn => {
+          const email = $("mEmail").value.trim().toLowerCase();
+          if (!email.includes("@")) { $("mMsg").innerHTML = `<div class="err">Enter a valid email.</div>`; return; }
+          btn.disabled = true;
+          try { await must(sb.from("admin_emails").insert({ email, role: "manager" })); dlg.close(); renderTabs(); }
+          catch (err) { $("mMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; btn.disabled = false; }
+        } }]),
+  });
+}
+
+// ---------------------------------------------------------------- Settings (owner)
+async function Settings(main) {
+  const s = await must(sb.from("app_settings").select("*").single());
+  main.innerHTML = `<h2>Payment settings</h2><div style="max-width:460px">
+    <p class="muted small">Customers pay to this UPI ID. Changes apply in the app immediately.</p>
+    <label>UPI ID</label><input type="text" id="sUpi" value="${esc(s.upi_id)}">
+    <label>Payee name</label><input type="text" id="sName" value="${esc(s.payee_name)}">
+
+    <div style="height:14px"></div><button class="btn primary" id="sSave">Save</button><div id="sMsg"></div></div>`;
+  $("sSave").onclick = async () => {
+    const upi = $("sUpi").value.trim(), name = $("sName").value.trim();
+    if (!upi.includes("@") || !name) { $("sMsg").innerHTML = `<div class="err">Enter a valid UPI ID (like name@bank) and a name.</div>`; return; }
+    try { await must(sb.from("app_settings").update({ upi_id: upi, payee_name: name}).eq("id", 1)); $("sMsg").innerHTML = `<div class="ok">Saved.</div>`; }
+    catch (err) { $("sMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; }
+  };
+}
+
+// ---------------------------------------------------------------- shared list UI
+function simpleList(main, { heading, addLabel, rows, describe, onAdd, onEdit, onDelete, canDelete = () => true, note }) {
+  main.innerHTML = `<div class="row" style="margin-bottom:14px"><h2 style="margin:0">${esc(heading)}</h2><span class="spacer"></span>
+      <button class="btn primary" id="addBtn">＋ ${esc(addLabel)}</button></div>
+    ${note ? `<p class="muted small">${esc(note)}</p>` : ""}<div class="list" id="sl"></div>`;
+  $("addBtn").onclick = onAdd;
+  const list = $("sl");
+  if (!rows.length) { list.innerHTML = `<div class="empty">Nothing yet.</div>`; return; }
+  for (const r of rows) {
+    const d = describe(r);
+    const el = document.createElement("div"); el.className = "item";
+    el.innerHTML = `<div class="body"><div class="row"><span class="title">${esc(d.title)}</span>
+        ${d.badge ? `<span class="badge premium">${esc(d.badge)}</span>` : ""}</div><div class="muted small">${esc(d.sub)}</div></div>
+      ${onEdit ? `<button class="iconbtn" data-a="edit" title="Edit">✎</button>` : ""}
+      ${onDelete && canDelete(r) ? `<button class="iconbtn" data-a="del" title="Delete" style="color:var(--err)">🗑</button>` : ""}`;
+    if (onEdit) el.querySelector('[data-a="edit"]').onclick = () => onEdit(r);
+    const del = el.querySelector('[data-a="del"]');
+    if (del) del.onclick = async () => { try { await onDelete(r); } catch (err) { toast(friendly(err)); } renderTabs(); };
+    list.appendChild(el);
+  }
+}
+
+// ---------------------------------------------------------------- start
+(async () => {
+  const hash = location.hash;
+  if (/type=recovery/.test(hash)) { show("resetView"); return; }
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) { try { await enter(); } catch (err) { show("loginView"); $("loginMsg").innerHTML = `<div class="err">${esc(friendly(err))}</div>`; } }
+  else show("loginView");
+})();
+</script>
+</body>
+</html>

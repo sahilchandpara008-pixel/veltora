@@ -1,0 +1,64 @@
+name: Build Streams APK
+
+on:
+  push:
+    paths: ["streams-android/**", ".github/workflows/android-build.yml"]
+  pull_request:
+    paths: ["streams-android/**", ".github/workflows/android-build.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # publish the APK to the "streams-latest" release (public download link)
+    defaults:
+      run:
+        working-directory: streams-android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Supabase keys come from repo secrets (Settings → Secrets and variables → Actions).
+      # Without them the APK still builds, but it can't connect to your backend.
+      - name: Write local.properties
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "SUPABASE_URL=$SUPABASE_URL" >> local.properties
+          echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> local.properties
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      # "Streams" — one app for everyone; the admin panel opens by tapping the version 7 times.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Streams-v1.1.${{ github.run_number }}
+          path: streams-android/app/build/outputs/apk/debug/app-debug.apk
+
+      # Public download link for customers / ads (no GitHub login, no zip):
+      # https://github.com/<owner>/<repo>/releases/download/streams-latest/Streams.apk
+      - name: Publish APK to the public download link
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Streams.apk
+          # Same app, tagged as coming from Meta ads (unlocks STREAMS_SPECIAL content on first start).
+          ./gradlew assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
+          cp app/build/outputs/apk/debug/app-debug.apk Streams-ads.apk
+          gh release view streams-latest >/dev/null 2>&1 || \
+            gh release create streams-latest --title "Streams" --notes "Latest Streams app for Android." --latest
+          gh release edit streams-latest --title "Streams v1.1.${{ github.run_number }}"
+          gh release upload streams-latest Streams.apk Streams-ads.apk --clobber

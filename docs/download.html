@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Streams</title>
+<meta name="description" content="Movies, series & originals. Download the Streams app for Android.">
+<meta property="og:title" content="Streams — Movies, series & originals">
+<meta property="og:description" content="Download the Streams app for Android.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #0b0b0f; --card: #16161d; --line: #26262f; --red: #e50914; --text: #f4f4f5; --muted: #a1a1aa; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text); font-family: Poppins, system-ui, sans-serif;
+    background: radial-gradient(120% 60% at 50% 0%, rgba(229, 9, 20, .28), var(--bg) 60%) var(--bg);
+  }
+  main { max-width: 440px; margin: 0 auto; padding: 56px 16px 40px; text-align: center; }
+  .brand { color: var(--red); font-weight: 800; font-size: 44px; letter-spacing: 4px; margin: 0; }
+  .tag { font-size: 18px; font-weight: 600; margin: 8px 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 32px; }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+    padding: 16px; border-radius: 12px; border: 0; font: 600 17px Poppins, sans-serif;
+    text-decoration: none; cursor: pointer;
+  }
+  .btn.primary { background: var(--red); color: #fff; box-shadow: 0 10px 30px rgba(229, 9, 20, .35); }
+  .btn.secondary { background: #fff; color: #000; margin-top: 12px; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .inapp {
+    display: none; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px; margin-bottom: 16px; text-align: left; font-size: 14px;
+  }
+  .steps {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 18px 6px; margin-top: 32px; text-align: left;
+  }
+  .steps h2 { font-size: 16px; margin: 0 0 12px; }
+  .steps ol { margin: 0; padding-left: 20px; }
+  .steps li { margin-bottom: 12px; color: #d4d4d8; font-size: 14px; line-height: 1.5; }
+  .steps b { color: var(--text); }
+  .perks { display: flex; justify-content: center; gap: 18px; margin-top: 26px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+  footer { color: #52525b; font-size: 12px; margin-top: 32px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 class="brand">STREAMS</h1>
+  <p class="tag">Movies, series &amp; originals</p>
+  <p class="sub">Watch free titles or unlock Premium from ₹1.</p>
+
+  <!-- Facebook / Instagram's built-in browser often blocks APK downloads. -->
+  <div class="inapp" id="inapp">
+    You're inside Facebook / Instagram. If the download doesn't start, tap
+    <b>Open in Chrome</b> below (or ⋮ → <b>Open in browser</b>).
+  </div>
+
+  <a class="btn primary" id="dl" href="https://github.com/sahilchandpara008-pixel/shopify-mcp-v1/releases/download/streams-latest/Streams.apk">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+    Download for Android
+  </a>
+  <a class="btn secondary" id="chrome" style="display:none" href="#">Open in Chrome</a>
+  <div class="meta" id="meta">Free · Android 8.0 or newer</div>
+
+  <div class="perks"><span>🎬 Movies &amp; series</span><span>⚡ Instant UPI</span><span>📱 HD streaming</span></div>
+
+  <div class="steps">
+    <h2>How to install</h2>
+    <ol>
+      <li>Tap <b>Download for Android</b>. If Chrome asks, tap <b>Download anyway</b>.</li>
+      <li>Open the downloaded <b>Streams</b> file from the notification or your Downloads.</li>
+      <li>If asked, allow <b>Install unknown apps</b> for your browser, then go back.</li>
+      <li>Tap <b>Install</b>, then <b>Open</b>. Already have Streams? It updates in place.</li>
+    </ol>
+  </div>
+
+  <footer>Streams for Android</footer>
+</main>
+<script>
+  // Ads link (download.html?src=meta, or utm_source=facebook/instagram/meta): serve the same app
+  // tagged as coming from Meta ads, so it unlocks the campaign content on first start.
+  const q = new URLSearchParams(location.search);
+  const src = (q.get("src") || q.get("utm_source") || "").toLowerCase();
+  if (["meta", "ads", "fb", "facebook", "ig", "instagram"].includes(src)) {
+    document.getElementById("dl").href =
+      "https://github.com/sahilchandpara008-pixel/shopify-mcp-v1/releases/download/streams-latest/Streams-ads.apk";
+  }
+
+  // Show the version currently being served (best effort; the button works without it).
+  fetch("https://api.github.com/repos/sahilchandpara008-pixel/shopify-mcp-v1/releases/tags/streams-latest")
+    .then(r => r.ok ? r.json() : null)
+    .then(r => {
+      if (!r) return;
+      const apk = (r.assets || []).find(a => a.name === "Streams.apk");
+      const v = (r.name || "").replace(/^Streams\s*/, "");
+      const mb = apk ? ` · ${(apk.size / 1048576).toFixed(0)} MB` : "";
+      document.getElementById("meta").textContent = `Free${v ? " · " + v : ""}${mb} · Android 8.0 or newer`;
+    })
+    .catch(() => {});
+
+  // In Facebook / Instagram's in-app browser, offer to reopen this page in Chrome.
+  const ua = navigator.userAgent || "";
+  if (/FBAN|FBAV|FB_IAB|Instagram/i.test(ua) && /Android/i.test(ua)) {
+    document.getElementById("inapp").style.display = "block";
+    const chrome = document.getElementById("chrome");
+    chrome.href = "intent://" + location.host + location.pathname + location.search +
+      "#Intent;scheme=https;package=com.android.chrome;end";
+    chrome.style.display = "flex";
+  }
+</script>
+</body>
+</html>

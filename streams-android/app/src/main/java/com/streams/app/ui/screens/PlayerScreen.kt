@@ -78,7 +78,7 @@ fun PlayerScreen(nav: NavController, titleId: String, requestedMode: String, epi
             else -> ep?.videoPath ?: t.videoPath
         } ?: error("No video has been uploaded for this title yet.")
         val signedIn = supabase.auth.currentUserOrNull() != null
-        if (!signedIn && mode != "trailer") error("Sign in and choose a plan to watch the full title.")
+        if (!signedIn && mode != "trailer") error(if (AppState.freeMode.value) "Sign in to watch the full title." else "Sign in and choose a plan to watch the full title.")
         val url = if (!signedIn) {
             runCatching { Repo.adsTrailerUrl(t.id) }.getOrElse { error(it.message ?: "Sign in to watch.") }
         } else {

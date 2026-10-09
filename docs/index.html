@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Streams Admin</title>
+<title>Veltora Admin</title>
 <style>
   :root {
     --bg: #0b0b0d; --s1: #16161a; --s2: #202026; --line: #2a2a30;
@@ -114,7 +114,7 @@
 
 <!-- ============ LOGIN ============ -->
 <section id="loginView" class="login hidden">
-  <div class="brand">STREAMS</div>
+  <div class="brand">VELTORA</div>
   <h1>Admin sign in</h1>
   <form id="loginForm">
     <label for="email">Email</label>
@@ -130,7 +130,7 @@
 
 <!-- ============ SET NEW PASSWORD (from reset email) ============ -->
 <section id="resetView" class="login hidden">
-  <div class="brand">STREAMS</div>
+  <div class="brand">VELTORA</div>
   <h1>Set a new password</h1>
   <form id="resetForm">
     <label>New password (min 8 characters)</label>
@@ -145,7 +145,7 @@
 
 <!-- ============ NOT ADMIN ============ -->
 <section id="deniedView" class="login hidden">
-  <div class="brand">STREAMS</div>
+  <div class="brand">VELTORA</div>
   <h1>No admin access</h1>
   <p class="muted">This account isn't on the admin list.</p>
   <button class="btn" id="deniedOut">Sign out</button>
@@ -156,7 +156,7 @@
   <header>
     <div class="wrap">
       <div class="top">
-        <span class="brand">STREAMS</span><span class="muted">Admin</span>
+        <span class="brand">VELTORA</span><span class="muted">Admin</span>
         <div class="who small"><div id="whoEmail"></div><div class="muted" id="whoRole"></div></div>
         <button class="btn" id="signOutBtn">Sign out</button>
       </div>
@@ -173,13 +173,13 @@
 <script>
 "use strict";
 // ---------------------------------------------------------------------------
-// Streams web admin. Security is enforced by the database (row-level security
+// Veltora web admin. Security is enforced by the database (row-level security
 // + server functions in streams-android/supabase/schema.sql), not by this page:
 // the anon key below is public by design and only an owner/manager login can
 // read or change admin data.
 // ---------------------------------------------------------------------------
-const SB_URL = "https://kpnfncydvpzlrcjplazh.supabase.co";
-const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwbmZuY3lkdnB6bHJjanBsYXpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1NzMzODYsImV4cCI6MjEwNjE0OTM4Nn0.PUY0H_NywecExxdKCmUzwz_lhJKnI0jgjvRB546bQbI";
+const SB_URL = "https://wyhexbcmidcclfqngvxz.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5aGV4YmNtaWRjY2xmcW5ndnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1Mjg2MzEsImV4cCI6MjEwNzEwNDYzMX0.-CSbNfP9VrRb5u-z4mmxL-LmHpjUwdg1ujgBTSN9uck";
 const sb = supabase.createClient(SB_URL, SB_ANON);
 
 const TIERS = {

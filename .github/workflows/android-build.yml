@@ -1,4 +1,4 @@
-name: Build Streams APK
+name: Build Veltora APK
 
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # publish the APK to the "streams-latest" release (public download link)
+      contents: write   # publish the APK to the "veltora-latest" release (public download link)
     defaults:
       run:
         working-directory: streams-android
@@ -41,24 +41,24 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      # "Streams" — one app for everyone; the admin panel opens by tapping the version 7 times.
+      # "Veltora" — one app for everyone; the admin panel opens by tapping the version 7 times.
       - uses: actions/upload-artifact@v4
         with:
-          name: Streams-v1.1.${{ github.run_number }}
+          name: Veltora-v1.1.${{ github.run_number }}
           path: streams-android/app/build/outputs/apk/debug/app-debug.apk
 
       # Public download link for customers / ads (no GitHub login, no zip):
-      # https://github.com/<owner>/<repo>/releases/download/streams-latest/Streams.apk
+      # https://github.com/<owner>/<repo>/releases/download/veltora-latest/Veltora.apk
       - name: Publish APK to the public download link
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Streams.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Veltora.apk
           # Same app, tagged as coming from Meta ads (unlocks STREAMS_SPECIAL content on first start).
           ./gradlew assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
-          cp app/build/outputs/apk/debug/app-debug.apk Streams-ads.apk
-          gh release view streams-latest >/dev/null 2>&1 || \
-            gh release create streams-latest --title "Streams" --notes "Latest Streams app for Android." --latest
-          gh release edit streams-latest --title "Streams v1.1.${{ github.run_number }}"
-          gh release upload streams-latest Streams.apk Streams-ads.apk --clobber
+          cp app/build/outputs/apk/debug/app-debug.apk Veltora-ads.apk
+          gh release view veltora-latest >/dev/null 2>&1 || \
+            gh release create veltora-latest --title "Veltora" --notes "Latest Veltora app for Android." --latest
+          gh release edit veltora-latest --title "Veltora v1.1.${{ github.run_number }}"
+          gh release upload veltora-latest Veltora.apk Veltora-ads.apk --clobber

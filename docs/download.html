@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Download Streams</title>
-<meta name="description" content="Movies, series & originals. Download the Streams app for Android.">
-<meta property="og:title" content="Streams — Movies, series & originals">
-<meta property="og:description" content="Download the Streams app for Android.">
+<title>Download Veltora</title>
+<meta name="description" content="Movies, series & originals. Download the Veltora app for Android.">
+<meta property="og:title" content="Veltora — Movies, series & originals">
+<meta property="og:description" content="Download the Veltora app for Android.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
@@ -46,7 +46,7 @@
 </head>
 <body>
 <main>
-  <h1 class="brand">STREAMS</h1>
+  <h1 class="brand">VELTORA</h1>
   <p class="tag">Movies, series &amp; originals</p>
   <p class="sub">Watch free titles or unlock Premium from ₹1.</p>
 
@@ -56,7 +56,7 @@
     <b>Open in Chrome</b> below (or ⋮ → <b>Open in browser</b>).
   </div>
 
-  <a class="btn primary" id="dl" href="https://github.com/sahilchandpara008-pixel/shopify-mcp-v1/releases/download/streams-latest/Streams.apk">
+  <a class="btn primary" id="dl" href="https://github.com/sahilchandpara008-pixel/veltora/releases/download/veltora-latest/Veltora.apk">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
     Download for Android
   </a>
@@ -69,13 +69,13 @@
     <h2>How to install</h2>
     <ol>
       <li>Tap <b>Download for Android</b>. If Chrome asks, tap <b>Download anyway</b>.</li>
-      <li>Open the downloaded <b>Streams</b> file from the notification or your Downloads.</li>
+      <li>Open the downloaded <b>Veltora</b> file from the notification or your Downloads.</li>
       <li>If asked, allow <b>Install unknown apps</b> for your browser, then go back.</li>
-      <li>Tap <b>Install</b>, then <b>Open</b>. Already have Streams? It updates in place.</li>
+      <li>Tap <b>Install</b>, then <b>Open</b>. Already have Veltora? It updates in place.</li>
     </ol>
   </div>
 
-  <footer>Streams for Android</footer>
+  <footer>Veltora for Android</footer>
 </main>
 <script>
   // Ads link (download.html?src=meta, or utm_source=facebook/instagram/meta): serve the same app
@@ -84,16 +84,16 @@
   const src = (q.get("src") || q.get("utm_source") || "").toLowerCase();
   if (["meta", "ads", "fb", "facebook", "ig", "instagram"].includes(src)) {
     document.getElementById("dl").href =
-      "https://github.com/sahilchandpara008-pixel/shopify-mcp-v1/releases/download/streams-latest/Streams-ads.apk";
+      "https://github.com/sahilchandpara008-pixel/veltora/releases/download/veltora-latest/Veltora-ads.apk";
   }
 
   // Show the version currently being served (best effort; the button works without it).
-  fetch("https://api.github.com/repos/sahilchandpara008-pixel/shopify-mcp-v1/releases/tags/streams-latest")
+  fetch("https://api.github.com/repos/sahilchandpara008-pixel/veltora/releases/tags/veltora-latest")
     .then(r => r.ok ? r.json() : null)
     .then(r => {
       if (!r) return;
-      const apk = (r.assets || []).find(a => a.name === "Streams.apk");
-      const v = (r.name || "").replace(/^Streams\s*/, "");
+      const apk = (r.assets || []).find(a => a.name === "Veltora.apk");
+      const v = (r.name || "").replace(/^Veltora\s*/, "");
       const mb = apk ? ` · ${(apk.size / 1048576).toFixed(0)} MB` : "";
       document.getElementById("meta").textContent = `Free${v ? " · " + v : ""}${mb} · Android 8.0 or newer`;
     })

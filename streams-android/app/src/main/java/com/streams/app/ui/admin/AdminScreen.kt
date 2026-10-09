@@ -139,7 +139,7 @@ private fun AdminHome(nav: NavController, isOwner: Boolean) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Streams Admin", style = MaterialTheme.typography.titleLarge)
+                Text("Veltora Admin", style = MaterialTheme.typography.titleLarge)
                 Text("${currentEmail()} · ${if (isOwner) "Owner" else "Manager"}", style = MaterialTheme.typography.bodySmall, maxLines = 1)
             }
             TextButton(onClick = {

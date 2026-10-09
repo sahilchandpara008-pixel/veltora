@@ -163,7 +163,7 @@ private fun AdminForm(heading: String, content: @Composable () -> Unit) {
             .statusBarsPadding()
             .padding(24.dp),
     ) {
-        Text("STREAMS", color = Red, style = MaterialTheme.typography.titleLarge)
+        Text("VELTORA", color = Red, style = MaterialTheme.typography.titleLarge)
         Text(heading, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 4.dp, bottom = 24.dp))
         content()
     }

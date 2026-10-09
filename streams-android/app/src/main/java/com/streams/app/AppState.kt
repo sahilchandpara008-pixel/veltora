@@ -22,6 +22,9 @@ object AppState {
 
     val hasSubscription = MutableStateFlow(false)
 
+    /** Free app (app_settings.free_mode): hide plans and payments; signing in unlocks everything. */
+    val freeMode = MutableStateFlow(false)
+
     /** Bumped whenever access may have changed (login/logout/approval) so screens reload. */
     val accessVersion = MutableStateFlow(0)
 
@@ -44,6 +47,7 @@ object AppState {
      * app was open unlocks without a restart. A network error keeps the last known answer.
      */
     suspend fun refreshAccess(onlyIfChanged: Boolean = false) {
+        runCatching { Repo.paymentSettings().freeMode }.onSuccess { freeMode.value = it }
         val now = if (supabase.auth.currentUserOrNull() == null) {
             false
         } else {

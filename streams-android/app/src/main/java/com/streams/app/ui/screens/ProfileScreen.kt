@@ -164,7 +164,8 @@ fun ProfileScreen(nav: NavController) {
                         modifier = Modifier.statusBarsPadding().padding(top = 14.dp),
                     )
                 }
-                item { MembershipCard(d.email, d.subscription, nav) }
+                val free = d.settings?.freeMode == true
+                item { MembershipCard(d.email, d.subscription, nav, free, d.settings?.cloudQuotaGb) }
                 if (d.adminRole != null) {
                     item {
                         MenuRow(
@@ -176,22 +177,24 @@ fun ProfileScreen(nav: NavController) {
                     }
                 }
 
-                item { PremiumBenefitsCard() }
-                item {
-                    Column {
-                        Text("Choose your plan", style = MaterialTheme.typography.titleLarge)
-                        Text("One-time UPI payment · no auto-renewal", style = MaterialTheme.typography.bodySmall)
+                if (!free) {
+                    item { PremiumBenefitsCard() }
+                    item {
+                        Column {
+                            Text("Choose your plan", style = MaterialTheme.typography.titleLarge)
+                            Text("One-time UPI payment · no auto-renewal", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
-                }
-                item {
-                    PlansSection(d, onSignIn = { nav.navigate("auth") }, onSubmitted = {
-                        scope.launch { AppState.refreshAccess() }
-                    })
+                    item {
+                        PlansSection(d, onSignIn = { nav.navigate("auth") }, onSubmitted = {
+                            scope.launch { AppState.refreshAccess() }
+                        })
+                    }
                 }
 
                 if (d.email != null) {
-                    item { Text("Payment history", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 10.dp)) }
-                    if (d.payments.isEmpty()) {
+                    if (!free) item { Text("Payment history", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 10.dp)) }
+                    if (!free && d.payments.isEmpty()) {
                         item {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Receipt, null, tint = TextFaint, modifier = Modifier.size(18.dp))
@@ -200,7 +203,7 @@ fun ProfileScreen(nav: NavController) {
                             }
                         }
                     }
-                    items(d.payments, key = { it.id }) { PaymentRow(it) }
+                    if (!free) items(d.payments, key = { it.id }) { PaymentRow(it) }
                     item {
                         MenuRow(
                             icon = Icons.AutoMirrored.Filled.Logout,
@@ -219,7 +222,7 @@ fun ProfileScreen(nav: NavController) {
                 item {
                     // Tapping the version 7 times opens the admin sign-in (not linked anywhere else).
                     Text(
-                        "Streams ${BuildConfig.VERSION_NAME}",
+                        "Veltora ${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextFaint,
                         textAlign = TextAlign.Center,
@@ -238,7 +241,7 @@ fun ProfileScreen(nav: NavController) {
 }
 
 @Composable
-private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController) {
+private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController, free: Boolean = false, cloudGb: Int? = null) {
     val expires = sub?.expiresAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
     val active = sub?.status == "active" && expires?.isAfter(OffsetDateTime.now()) == true
     val left = if (active && expires != null) java.time.Duration.between(OffsetDateTime.now(), expires) else java.time.Duration.ZERO
@@ -269,9 +272,10 @@ private fun MembershipCard(email: String?, sub: Subscription?, nav: NavControlle
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(email ?: "Welcome to Streams", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Text(email ?: "Welcome to Veltora", style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     val (label, color) = when {
-                        email == null -> "Sign in to watch and subscribe" to TextMuted
+                        email == null -> (if (free) "Sign in to watch everything for free" else "Sign in to watch and subscribe") to TextMuted
+                        free -> "Free account · ${cloudGb ?: 15} GB cloud storage" to TextMuted
                         active -> "Premium member" to Gold
                         sub != null -> "Plan expired" to Amber
                         else -> "Free account" to TextMuted
@@ -303,7 +307,7 @@ private fun MembershipCard(email: String?, sub: Subscription?, nav: NavControlle
                     }
                     Text("Valid until ${formatDate(sub!!.expiresAt)}", style = MaterialTheme.typography.bodySmall)
                 }
-                sub != null -> {
+                sub != null && !free -> {
                     Spacer(Modifier.height(10.dp))
                     Text("Expired on ${formatDate(sub.expiresAt)}. Choose a plan below to continue watching premium.", style = MaterialTheme.typography.bodySmall)
                 }
@@ -595,7 +599,7 @@ private fun WaitingForPaymentCard(
             }
             Text(
                 "Complete the payment in your UPI app. Your plan starts automatically within a few seconds — " +
-                    "after paying, just come back to Streams.",
+                    "after paying, just come back to Veltora.",
                 style = MaterialTheme.typography.bodySmall,
             )
             if (order.clientStatus == null) PrimaryButton(if (noAnswer) "Try paying again" else "Open UPI app", onPayAgain)
@@ -705,7 +709,7 @@ private fun upiIntent(s: PaymentSettings, order: Payment): Intent {
         .appendQueryParameter("tr", order.reference) // backend-generated order id, echoed back as txnRef
         .appendQueryParameter("am", "%.2f".format(java.util.Locale.US, order.amount ?: 0.0))
         .appendQueryParameter("cu", "INR")
-        .appendQueryParameter("tn", "Streams ${order.reference}")
+        .appendQueryParameter("tn", "Veltora ${order.reference}")
         .build()
     return Intent(Intent.ACTION_VIEW, uri)
 }

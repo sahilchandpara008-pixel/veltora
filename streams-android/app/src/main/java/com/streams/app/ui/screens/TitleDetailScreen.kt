@@ -91,6 +91,7 @@ private data class DetailData(val title: Title, val episodes: List<Episode>, val
 fun TitleDetailScreen(nav: NavController, titleId: String) {
     val access by AppState.accessVersion.collectAsStateWithLifecycle()
     val hasSub by AppState.hasSubscription.collectAsStateWithLifecycle()
+    val freeMode by AppState.freeMode.collectAsStateWithLifecycle()
     // Make sure the Subscribe / Play buttons reflect the latest plan status.
     LaunchedEffect(titleId) {
         Attribution.logEvent("content_view", titleId)   // server logs special_content_view for STREAMS_SPECIAL titles
@@ -149,7 +150,9 @@ fun TitleDetailScreen(nav: NavController, titleId: String) {
                             }
                         } else {
                             val mode = lockedMode(t)
-                            PrimaryButton(
+                            if (freeMode) {
+                                PrimaryButton("Sign in to watch", { nav.navigate("auth") }, icon = Icons.Default.PlayArrow)
+                            } else PrimaryButton(
                                 "Subscribe to watch",
                                 { nav.navigate("profile") { launchSingleTop = true } },
                                 icon = Icons.Default.WorkspacePremium,
@@ -161,8 +164,10 @@ fun TitleDetailScreen(nav: NavController, titleId: String) {
                                 icon = Icons.Default.PlayArrow,
                                 enabled = mode == "trailer" || canPlayMain,
                             )
-                            Spacer(Modifier.height(12.dp))
-                            PremiumNote()
+                            if (!freeMode) {
+                                Spacer(Modifier.height(12.dp))
+                                PremiumNote()
+                            }
                         }
 
                         if (t.description.isNotBlank()) {
@@ -260,7 +265,7 @@ private fun PremiumNote() {
             Icon(Icons.Default.WorkspacePremium, null, tint = Gold, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Text(
-                "Premium title — pick a plan in Profile, pay by UPI and unlock everything on Streams.",
+                "Premium title — pick a plan in Profile, pay by UPI and unlock everything on Veltora.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

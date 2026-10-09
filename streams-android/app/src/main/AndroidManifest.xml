@@ -36,7 +36,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="streams" android:host="login-callback" />
+                <data android:scheme="veltora" android:host="login-callback" />
             </intent-filter>
         </activity>
         <!-- The payment SMS / notification readers are added only in the admin app (src/admin). -->

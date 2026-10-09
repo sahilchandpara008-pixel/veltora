@@ -153,11 +153,11 @@ fun HomeScreen(nav: NavController) {
                     // Campaign content: the server only returns STREAMS_SPECIAL titles to accounts that
                     // came from a Meta ad, so for everyone else this list is empty and the row is hidden.
                     val special = all.filter { it.isStreamsSpecial }
-                    if (special.isNotEmpty()) item(key = "special") { PosterRow("Streams Special", special, nav) }
+                    if (special.isNotEmpty()) item(key = "special") { PosterRow("Veltora Special", special, nav) }
                     val trending = all.sortedByDescending { it.viewCount }.take(10)
                     if (trending.size >= 3) item(key = "top10") { Top10Row(trending, nav) }
                     val newest = all.take(12)
-                    if (newest.isNotEmpty()) item(key = "new") { PosterRow("New on Streams", newest, nav) }
+                    if (newest.isNotEmpty()) item(key = "new") { PosterRow("New on Veltora", newest, nav) }
                     s.data.channels.forEach { ch ->
                         val list = all.filter { it.channelId == ch.id }
                         if (list.isNotEmpty()) item(key = ch.id) {
@@ -183,7 +183,7 @@ private fun TopBar(nav: NavController) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "STREAMS",
+            "VELTORA",
             color = Red,
             fontFamily = Poppins,
             fontSize = 22.sp,
@@ -304,7 +304,7 @@ fun PosterRow(heading: String, titles: List<Title>, nav: NavController, onMore: 
 @Composable
 private fun Top10Row(titles: List<Title>, nav: NavController) {
     Column(Modifier.padding(top = 22.dp)) {
-        SectionHeader("Top 10 on Streams")
+        SectionHeader("Top 10 on Veltora")
         Spacer(Modifier.height(12.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             itemsIndexed(titles, key = { _, t -> "top" + t.id }) { i, t ->

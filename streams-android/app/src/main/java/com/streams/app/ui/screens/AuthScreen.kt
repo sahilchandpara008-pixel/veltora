@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,7 +70,7 @@ import com.streams.app.ui.theme.TextMuted
 import kotlinx.coroutines.launch
 
 @Composable
-fun AuthScreen(onClose: () -> Unit, reason: String = "Sign in to watch and to subscribe.") {
+fun AuthScreen(onClose: () -> Unit, reason: String = "Sign in to watch.") {
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -154,7 +155,7 @@ fun AuthScreen(onClose: () -> Unit, reason: String = "Sign in to watch and to su
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(64.dp))
-            Text("STREAMS", color = Red, fontFamily = Poppins, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp)
+            Text("VELTORA", color = Red, fontFamily = Poppins, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp)
             Spacer(Modifier.height(10.dp))
             Text(
                 "Movies, series & originals",
@@ -278,7 +279,8 @@ fun AuthScreen(onClose: () -> Unit, reason: String = "Sign in to watch and to su
 
             Spacer(Modifier.height(36.dp))
             Text(
-                "Free titles need a free account.\nPremium titles also need a plan.",
+                if (AppState.freeMode.collectAsState().value) "Everything is free. Just sign in."
+                else "Free titles need a free account.\nPremium titles also need a plan.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 textAlign = TextAlign.Center,
@@ -314,7 +316,7 @@ fun SetPasswordScreen(onDone: () -> Unit) {
             .statusBarsPadding()
             .padding(24.dp),
     ) {
-        Text("STREAMS", color = Red, fontFamily = Poppins, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
+        Text("VELTORA", color = Red, fontFamily = Poppins, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
         Text("Set your password", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
         Text(
             if (signedInEmail != null) "Signed in as $signedInEmail" else "Finishing sign-in from your email link…",

@@ -1,4 +1,4 @@
-# Streams — Android app (Kotlin + Jetpack Compose + Supabase)
+# Veltora — Android app (Kotlin + Jetpack Compose + Supabase)
 
 A native Android streaming app with a **Home / Channels / Shows / Profile** bottom bar, Free / Premium / Exclusive content, manual UPI payments verified by an admin, and a hidden admin panel for uploads, payments, channels, campaigns and team access.
 
@@ -26,7 +26,7 @@ streams-android/
 2. Open `supabase/schema.sql` in any text editor. Near the bottom, replace
    `YOUR_OWNER_EMAIL@example.com` with **your own email** (the one you'll use for admin).
 3. In Supabase: **SQL Editor → New query**, paste the whole file, click **Run**. It should say "Success".
-   This creates every table, all the security rules, the 6 plans (₹1 for 1 hour / ₹99 / ₹149 / ₹259 / ₹599 / ₹999), your UPI ID `2728412a@bandhan`, and the two storage buckets.
+   This creates every table, all the security rules, the 6 plans (₹1 for 1 hour / ₹99 / ₹149 / ₹259 / ₹599 / ₹999), an empty UPI ID (set it later in Admin → Settings), free mode with 15 GB Cloud Storage per user, and the two storage buckets.
 4. (Optional but recommended) **Database → Extensions** → enable `pg_cron`, then run the two commented lines at the very end of `schema.sql`. This marks expired plans every 30 minutes. (Expired plans stop working immediately even without it — this only tidies up the status.)
 
 ## Step 3 — Sign-in settings in Supabase
@@ -40,8 +40,8 @@ streams-android/
 **Authentication → Providers → Email**: make sure it is **enabled**. (This covers magic links and the admin password.)
 
 **Authentication → Providers → Google** — use **your own** Google credentials:
-1. Go to https://console.cloud.google.com → create a project called "Streams".
-2. **APIs & Services → OAuth consent screen** → External → fill in app name "Streams", your email → Save. Then **Publish app** (otherwise only test users can sign in).
+1. Go to https://console.cloud.google.com → create a project called "Veltora".
+2. **APIs & Services → OAuth consent screen** → External → fill in app name "Veltora", your email → Save. Then **Publish app** (otherwise only test users can sign in).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → type **Web application**.
    - Authorized redirect URI: `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback`
      (copy the exact value shown on the Supabase Google provider page).
@@ -53,7 +53,7 @@ streams-android/
 
 ## Step 4 — Keys (already done)
 
-The app is already connected to the Streams Supabase project (`kpnfncydvpzlrcjplazh`, Mumbai): its URL and public anon key are built in via `app/build.gradle.kts`. To point the app at a different project, put `SUPABASE_URL=` and `SUPABASE_ANON_KEY=` lines in `local.properties` (or GitHub Actions secrets with the same names) — those override the built-in values.
+The app is already connected to the Veltora Supabase project (`wyhexbcmidcclfqngvxz`, Mumbai): its URL and public anon key are built in via `app/build.gradle.kts`. To point the app at a different project, put `SUPABASE_URL=` and `SUPABASE_ANON_KEY=` lines in `local.properties` (or GitHub Actions secrets with the same names) — those override the built-in values.
 
 ## Step 5 — Open and run in Android Studio
 
@@ -68,7 +68,7 @@ The app is already connected to the Streams Supabase project (`kpnfncydvpzlrcjpl
 
 The admin area isn't linked anywhere in the app. To open it:
 
-1. Go to **Profile** and tap the small **"Streams 1.0.0"** text at the bottom **7 times** → the **Admin sign in** page opens.
+1. Go to **Profile** and tap the small **"Veltora 1.0.0"** text at the bottom **7 times** → the **Admin sign in** page opens.
 2. Type your owner email, then tap **"Forgot password? / Set first password"**.
 3. Open the email **on the same phone** and tap the link → the app opens **Set admin password**. Choose a password.
 4. You're in the admin dashboard. Next time, just use email + password on the Admin sign in page.
@@ -89,7 +89,7 @@ In **Admin**:
 `docs/index.html` in this repository is a browser version of the admin panel (same features: stats, payments, uploads with a progress bar, channels, campaigns, team, settings). It is published with GitHub Pages:
 
 1. GitHub repo → **Settings → Pages** → Source: **Deploy from a branch** → Branch: the branch containing `docs/` (e.g. `main` after merging) → Folder: **/docs** → Save.
-2. After ~1 minute it is live at `https://sahilchandpara008-pixel.github.io/shopify-mcp-v1/`.
+2. After ~1 minute it is live at `https://sahilchandpara008-pixel.github.io/veltora/`.
 3. For “Forgot password?” on the web panel, add `https://sahilchandpara008-pixel.github.io/**` to Supabase → Authentication → URL Configuration → Redirect URLs.
 
 Only owner/manager accounts can sign in; everyone else is signed straight back out, and the database rejects admin actions from anyone else anyway.

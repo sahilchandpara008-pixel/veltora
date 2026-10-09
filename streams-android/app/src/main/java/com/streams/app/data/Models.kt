@@ -155,6 +155,8 @@ data class PaymentSettings(
     @SerialName("cloud_quota_gb") val cloudQuotaGb: Int = 2048,
     /** Merchant category code (mc) for a merchant UPI ID, e.g. from BharatPe / Paytm / PhonePe Business. */
     @SerialName("merchant_code") val merchantCode: String? = null,
+    /** Free app: every signed-in user gets all content + cloud storage; no plans or payments are shown. */
+    @SerialName("free_mode") val freeMode: Boolean = false,
 )
 
 /** A file in the member's private Cloud Storage folder (user-files/<user id>/...). */

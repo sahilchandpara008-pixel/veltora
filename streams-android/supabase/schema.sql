@@ -1,5 +1,5 @@
 -- =====================================================================
--- STREAMS — complete database setup
+-- VELTORA — complete database setup
 -- Paste this whole file into Supabase → SQL Editor → New query → Run.
 -- Safe to run once on a fresh project.
 --
@@ -49,7 +49,7 @@ create table public.app_settings (
   payee_name text not null,
   updated_at timestamptz not null default now()
 );
-insert into public.app_settings (upi_id, payee_name) values ('2728412a@bandhan', 'Streams');
+insert into public.app_settings (upi_id, payee_name) values ('', 'Veltora');
 
 alter table public.app_settings enable row level security;
 create policy "anyone reads settings" on public.app_settings for select using (true);
@@ -378,7 +378,7 @@ create policy "admins delete videos" on storage.objects for delete using (bucket
 -- ---------------------------------------------------------------------
 -- 10. OWNER ACCOUNT  ← CHANGE THIS EMAIL
 -- ---------------------------------------------------------------------
-insert into public.admin_emails (email, role) values (lower('YOUR_OWNER_EMAIL@example.com'), 'owner');
+insert into public.admin_emails (email, role) values (lower('perfumwala@gmail.com'), 'owner');
 
 -- ---------------------------------------------------------------------
 -- 11. FUNCTION ACCESS — admin/payment functions are not callable by guests,
@@ -2060,3 +2060,23 @@ revoke execute on function public.catalog_for_install(uuid) from public;
 revoke execute on function public.episodes_for_install(uuid, uuid) from public;
 grant execute on function public.catalog_for_install(uuid) to anon, authenticated;
 grant execute on function public.episodes_for_install(uuid, uuid) to anon, authenticated;
+
+-- =====================================================================
+-- 25. VELTORA FREE MODE. While app_settings.free_mode is true every
+--     signed-in user counts as subscribed: all titles play and Cloud
+--     Storage uploads work (cloud_quota_gb = 15 GB each). The app hides
+--     plans and payments. Turn it off to sell plans again (the UPI
+--     payment system above stays in place).
+-- =====================================================================
+alter table public.app_settings add column if not exists free_mode boolean not null default false;
+update public.app_settings set free_mode = true, cloud_quota_gb = 15 where id = 1;
+
+create or replace function public.has_active_subscription()
+returns boolean language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and (
+    coalesce((select free_mode from public.app_settings where id = 1), false)
+    or exists (
+      select 1 from public.subscriptions
+      where user_id = auth.uid() and status = 'active' and expires_at > now()
+    ))
+$$;

@@ -17,9 +17,9 @@ fun prop(name: String) = (localProps.getProperty(name) ?: "").trim()
 // The Streams Supabase project. The anon key is public by design (every APK contains it);
 // all protection comes from the row-level security rules in supabase/schema.sql.
 // local.properties values, when set, override these.
-val supabaseUrl = prop("SUPABASE_URL").ifEmpty { "https://kpnfncydvpzlrcjplazh.supabase.co" }
+val supabaseUrl = prop("SUPABASE_URL").ifEmpty { "https://wyhexbcmidcclfqngvxz.supabase.co" }
 val supabaseAnonKey = prop("SUPABASE_ANON_KEY").ifEmpty {
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwbmZuY3lkdnB6bHJjanBsYXpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1NzMzODYsImV4cCI6MjEwNjE0OTM4Nn0.PUY0H_NywecExxdKCmUzwz_lhJKnI0jgjvRB546bQbI"
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5aGV4YmNtaWRjY2xmcW5ndnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1Mjg2MzEsImV4cCI6MjEwNzEwNDYzMX0.-CSbNfP9VrRb5u-z4mmxL-LmHpjUwdg1ujgBTSN9uck"
 }
 
 android {
@@ -27,7 +27,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.streams.app"
+        applicationId = "com.veltora.app"
         minSdk = 26
         targetSdk = 36
         // Every GitHub build gets its own number, so a newer APK always installs as an update

@@ -12,7 +12,7 @@ import io.github.jan.supabase.storage.storage
 
 /** Deep links that Supabase sends people back to after e-mail / Google sign-in. */
 object Links {
-    const val SCHEME = "streams"
+    const val SCHEME = "veltora"
     const val HOST = "login-callback"
     const val LOGIN = "$SCHEME://$HOST"
     const val ADMIN_SET_PASSWORD = "$SCHEME://$HOST/admin-reset"

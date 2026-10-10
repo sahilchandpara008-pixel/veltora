@@ -592,4 +592,24 @@ object Repo {
         // The server session no longer exists; just forget it on this phone.
         runCatching { supabase.auth.signOut(SignOutScope.LOCAL) }
     }
+
+    // ---------------------------------------------------------------- Meta (Facebook) ads tracking
+    suspend fun saveMetaSettings(enabled: Boolean, appId: String, clientToken: String, pixelId: String) {
+        supabase.from("app_settings").update(buildJsonObject {
+            put("meta_enabled", enabled)
+            put("meta_app_id", appId.trim().ifEmpty { null })
+            put("meta_client_token", clientToken.trim().ifEmpty { null })
+            put("meta_pixel_id", pixelId.trim().ifEmpty { null })
+        }) { filter { eq("id", 1) } }
+    }
+
+    suspend fun metaStatus(): MetaStatus = supabase.postgrest.rpc("admin_meta_status").decodeAs()
+
+    /** Empty token keeps the saved one. */
+    suspend fun saveMetaCapi(token: String, testEventCode: String): MetaStatus =
+        supabase.postgrest.rpc("admin_set_meta_capi", buildJsonObject {
+            put("p_token", token.trim()); put("p_test_event_code", testEventCode.trim())
+        }).decodeAs()
+
+    suspend fun clearMetaCapi(): MetaStatus = supabase.postgrest.rpc("admin_clear_meta_capi").decodeAs()
 }

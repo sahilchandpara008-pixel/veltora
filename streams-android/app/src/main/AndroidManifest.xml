@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -40,5 +41,10 @@
             </intent-filter>
         </activity>
         <!-- The payment SMS / notification readers are added only in the admin app (src/admin). -->
+        <!-- Meta SDK: started by MetaEvents with the App ID from Admin → Settings, not automatically. -->
+        <provider
+            android:name="com.facebook.internal.FacebookInitProvider"
+            android:authorities="${applicationId}.FacebookInitProvider"
+            tools:node="remove" />
     </application>
 </manifest>

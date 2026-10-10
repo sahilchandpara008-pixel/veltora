@@ -1,5 +1,6 @@
 package com.streams.app.ui.screens
 
+import com.streams.app.data.MetaEvents
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -119,6 +120,7 @@ fun TitleDetailScreen(nav: NavController, titleId: String) {
         is Load.Ok -> {
             val d = s.data
             val t = d.title
+            LaunchedEffect(t.id) { MetaEvents.viewContent(t) }
             val full = canWatchFull(t, hasSub)
             val firstEp = d.episodes.firstOrNull()
             var expanded by remember { mutableStateOf(false) }

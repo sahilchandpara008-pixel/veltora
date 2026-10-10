@@ -2,14 +2,13 @@
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- red rounded square with a white play symbol, sized for the splash icon safe zone -->
-    <path android:pathData="M36,30h36a6,6 0 0 1 6,6v36a6,6 0 0 1 -6,6h-36a6,6 0 0 1 -6,-6v-36a6,6 0 0 1 6,-6z">
+    <!-- the launcher "V" mark, sized for the splash icon safe zone -->
+    <path android:pathData="M36.5,38 L44.5,38 L54,60 L63.5,38 L71.5,38 L57.5,70 L50.5,70 Z">
         <aapt:attr name="android:fillColor">
             <gradient android:type="linear"
-                android:startX="30" android:startY="30" android:endX="78" android:endY="78"
-                android:startColor="#FFFF2D3A" android:endColor="#FF8E0710" />
+                android:startX="54" android:startY="38" android:endX="54" android:endY="70"
+                android:startColor="#FFFF4A55" android:endColor="#FFB3060F" />
         </aapt:attr>
     </path>
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M49,44.6 C49,43.4 50.3,42.7 51.3,43.3 L64.4,51.6 C65.3,52.2 65.3,53.6 64.4,54.2 L51.3,62.5 C50.3,63.1 49,62.4 49,61.2 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M50.6,40.8 L50.6,49.2 L57.8,45 Z" />
 </vector>

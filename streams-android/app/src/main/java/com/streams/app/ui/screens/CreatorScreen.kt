@@ -325,11 +325,11 @@ private fun ChannelDialog(existing: Channel?, onDismiss: () -> Unit, onSaved: ()
                         else Repo.updateMyChannel(existing.id, name, description, avatar)
                         if (photo != null && existing?.avatarPath != null) Repo.deleteCreatorFile("images", existing.avatarPath)
                     }.onSuccess {
-                        Toast.makeText(context, if (existing == null) "Channel request sent for approval" else "Channel updated", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (existing == null) "Channel created. It goes live once our team approves it." else "Channel updated", Toast.LENGTH_SHORT).show()
                         onSaved()
                     }.onFailure { error = it.friendly(); busy = false }
                 }
-            }) { Text(if (existing == null) "Send request" else "Save") }
+            }) { Text(if (existing == null) "Create" else "Save") }
         },
         dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } },
     )
@@ -343,6 +343,8 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var cover by remember { mutableStateOf<Uri?>(null) }
     var video by remember { mutableStateOf<Uri?>(null) }
+    var trailer by remember { mutableStateOf<Uri?>(null) }
+    var removeTrailer by remember { mutableStateOf(false) }
     var agreed by remember { mutableStateOf(existing != null) }
     var busy by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf("") }
@@ -355,6 +357,14 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
             else { video = uri; error = null }
         }
     }
+    val pickTrailer = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val size = fileSize(context, uri)
+            if (size != null && size > MAX_VIDEO_BYTES) error = "This trailer is ${size / 1048576} MB. The limit is 50 MB."
+            else { trailer = uri; removeTrailer = false; error = null }
+        }
+    }
+    val hasTrailer = trailer != null || (!removeTrailer && existing?.trailerPath != null)
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
@@ -363,6 +373,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it.take(120) }, label = { Text("Title") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(description, { description = it.take(3000) }, label = { Text("Description") }, minLines = 2, maxLines = 5, modifier = Modifier.fillMaxWidth())
+                Text("Thumbnail", style = MaterialTheme.typography.labelLarge)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(width = 96.dp, height = 60.dp).clip(RoundedCornerShape(10.dp)).background(Surface2), contentAlignment = Alignment.Center) {
                         val url: Any? = cover ?: imageUrl(existing?.coverPath)
@@ -370,8 +381,24 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                         else Text("No cover", style = MaterialTheme.typography.bodySmall)
                     }
                     Spacer(Modifier.width(10.dp))
-                    TextButton(onClick = { pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("Choose cover") }
+                    TextButton(onClick = { pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("Choose thumbnail") }
                 }
+                Text("Trailer (optional)", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when {
+                            trailer != null -> "New trailer selected"
+                            hasTrailer -> "Current trailer kept"
+                            else -> "No trailer"
+                        },
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                    )
+                    if (hasTrailer) TextButton(onClick = { trailer = null; removeTrailer = true }) { Text("Remove") }
+                    TextButton(onClick = { pickTrailer.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }) {
+                        Text(if (hasTrailer) "Replace" else "Choose trailer")
+                    }
+                }
+                Text("Full video", style = MaterialTheme.typography.labelLarge)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         when {
@@ -385,7 +412,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                         Text(if (existing == null && video == null) "Choose video" else "Replace video")
                     }
                 }
-                Text("Max 50 MB. New videos and replaced videos are reviewed before they go live.", style = MaterialTheme.typography.bodySmall)
+                Text("Max 50 MB per file. New videos, and changed videos or trailers, are reviewed before they go live.", style = MaterialTheme.typography.bodySmall)
                 if (existing == null) TermsCheck(agreed) { agreed = it }
                 if (busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -406,16 +433,20 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                             step = "Uploading video…"
                             Repo.uploadFile(context, it, "videos", folder)
                         } ?: existing!!.videoPath!!
-                        val coverPath = cover?.let { step = "Uploading cover…"; Repo.uploadFile(context, it, "images", folder) } ?: existing?.coverPath
+                        val trailerPath = trailer?.let { step = "Uploading trailer…"; Repo.uploadFile(context, it, "videos", folder) }
+                            ?: if (removeTrailer) null else existing?.trailerPath
+                        val coverPath = cover?.let { step = "Uploading thumbnail…"; Repo.uploadFile(context, it, "images", folder) } ?: existing?.coverPath
                         step = "Saving…"
-                        Repo.creatorSaveTitle(existing?.id, channel.id, name, description, coverPath, videoPath, existing?.trailerPath, duration)
+                        Repo.creatorSaveTitle(existing?.id, channel.id, name, description, coverPath, videoPath, trailerPath, duration)
                         // Remove files this edit replaced.
                         if (existing != null) {
                             if (video != null) Repo.deleteCreatorFile("videos", existing.videoPath)
+                            if (trailer != null || removeTrailer) Repo.deleteCreatorFile("videos", existing.trailerPath)
                             if (cover != null) Repo.deleteCreatorFile("images", existing.coverPath)
                         }
                     }.onSuccess {
-                        Toast.makeText(context, if (existing == null || video != null) "Sent for review" else "Saved", Toast.LENGTH_SHORT).show()
+                        val reviewed = existing == null || video != null || trailer != null || removeTrailer
+                        Toast.makeText(context, if (reviewed) "Sent for review" else "Saved", Toast.LENGTH_SHORT).show()
                         onSaved()
                     }.onFailure { error = it.friendly(); busy = false }
                 }

@@ -663,6 +663,7 @@ private fun SettingsTab() {
                         busy = false
                     }
                 }
+                MetaSettingsSection(s.data)
             }
         }
     }

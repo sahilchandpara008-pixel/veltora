@@ -71,6 +71,7 @@ object UpiPay {
                     result.value = p
                     if (p.status == "approved") {
                         AppState.accessVersion.value++
+                        MetaEvents.checkPurchases()
                         Toast.makeText(appContext, "Payment successful! Your subscription is now active.", Toast.LENGTH_LONG).show()
                     }
                     return@launch

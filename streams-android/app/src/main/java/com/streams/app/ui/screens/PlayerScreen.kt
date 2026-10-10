@@ -1,6 +1,18 @@
 package com.streams.app.ui.screens
 
+import com.streams.app.data.MetaEvents
 import android.app.Activity
+import android.content.pm.ActivityInfo
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.runtime.MutableState
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import com.streams.app.data.Title
+import com.streams.app.ui.Routes
+import io.github.jan.supabase.auth.status.SessionStatus
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -57,7 +69,7 @@ import kotlinx.coroutines.delay
 
 private const val PREVIEW_MS = 30_000L
 
-private data class Playback(val url: String, val mode: String, val heading: String)
+private data class Playback(val url: String, val mode: String, val heading: String, val title: Title)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -85,33 +97,97 @@ fun PlayerScreen(nav: NavController, titleId: String, requestedMode: String, epi
             runCatching { Repo.streamUrl(path) }.getOrElse { error("Subscribe to watch this title.") }
         }
         Repo.recordView(t.id, preview = mode != "full")
-        Playback(url, mode, ep?.let { "${t.name} · E${it.episodeNumber}" } ?: t.name)
+        Playback(url, mode, ep?.let { "${t.name} · E${it.episodeNumber}" } ?: t.name, t)
     }
 
     ImmersiveMode()
+    val landscape = PlayerOrientation()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = load.state) {
             Load.Loading -> Loading()
             is Load.Err -> ErrorState(s.message, load.reload)
-            is Load.Ok -> VideoPlayer(s.data, nav)
+            is Load.Ok -> VideoPlayer(s.data, nav, hasSub)
         }
         IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.statusBarsPadding().padding(8.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
         }
+        // Full-screen toggle: forces landscape (either side); tap again to follow the phone's rotation.
+        IconButton(
+            onClick = { landscape.value = !landscape.value },
+            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp),
+        ) {
+            Icon(
+                if (landscape.value) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                if (landscape.value) "Exit full screen" else "Full screen",
+                tint = Color.White,
+            )
+        }
     }
+}
+
+/**
+ * While the player is open the screen follows the phone's rotation (respecting the user's
+ * auto-rotate setting); the returned flag forces landscape. The previous orientation is restored
+ * when the player closes.
+ */
+@Composable
+private fun PlayerOrientation(): MutableState<Boolean> {
+    val landscape = remember { mutableStateOf(false) }
+    val activity = LocalContext.current as? Activity ?: return landscape
+    DisposableEffect(Unit) {
+        val previous = activity.requestedOrientation
+        onDispose { activity.requestedOrientation = previous }
+    }
+    LaunchedEffect(landscape.value) {
+        activity.requestedOrientation =
+            if (landscape.value) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+    }
+    return landscape
 }
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun VideoPlayer(p: Playback, nav: NavController) {
+private fun VideoPlayer(p: Playback, nav: NavController, hasSub: Boolean) {
     val context = LocalContext.current
-    var previewOver by remember { mutableStateOf(false) }
+    val session by AppState.session.collectAsStateWithLifecycle()
+    val signedIn = session is SessionStatus.Authenticated
+    var previewOver by remember(p.url) { mutableStateOf(false) }
+    var ended by remember(p.url) { mutableStateOf(false) }
+    var playError by remember(p.url) { mutableStateOf<String?>(null) }
     val player = remember(p.url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(p.url))
-            prepare()
-            playWhenReady = true
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
+                /* handleAudioFocus = */ true,
+            )
+            .setHandleAudioBecomingNoisy(true)   // pause when headphones are unplugged
+            .build().apply {
+                setMediaItem(MediaItem.fromUri(p.url))
+                prepare()
+                playWhenReady = true
+            }
+    }
+    var reportedPlay by remember(p.url) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    ended = true
+                    if (p.mode == "trailer") MetaEvents.trailerComplete(p.title)
+                }
+                if (state == Player.STATE_READY) playError = null
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying && !reportedPlay) { reportedPlay = true; MetaEvents.videoPlay(p.title, p.mode) }
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                playError = if (error.errorCode in NETWORK_ERRORS) "Check your internet connection and try again."
+                else "This video couldn't be played. Please try again."
+            }
         }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(player, lifecycle) {
@@ -137,7 +213,13 @@ private fun VideoPlayer(p: Playback, nav: NavController) {
     }
 
     AndroidView(
-        factory = { PlayerView(it).apply { this.player = player; setShowSubtitleButton(true) } },
+        factory = {
+            PlayerView(it).apply {
+                this.player = player
+                keepScreenOn = true
+                setShowSubtitleButton(true)
+            }
+        },
         modifier = Modifier.fillMaxSize(),
     )
 
@@ -149,27 +231,76 @@ private fun VideoPlayer(p: Playback, nav: NavController) {
             modifier = Modifier.statusBarsPadding().padding(top = 20.dp, start = 64.dp),
         )
     }
-    if (previewOver) {
-        Column(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("Enjoying ${p.heading}?", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-            Text(
-                "Subscribe to keep watching the full video.",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 6.dp, bottom = 16.dp),
+
+    val fullAllowed = signedIn && canWatchFull(p.title, hasSub)
+    when {
+        playError != null -> Overlay(
+            title = "Playback problem",
+            message = playError!!,
+            primary = "Try again" to { playError = null; player.prepare(); player.play() },
+            secondary = "Close" to { nav.popBackStack() },
+        )
+        // Trailer finished: guests sign in to keep watching; members go straight to the full video.
+        p.mode == "trailer" && ended -> when {
+            !signedIn -> Overlay(
+                title = "Want to watch the full video?",
+                message = if (AppState.freeMode.value) "Sign in to Veltora to watch ${p.heading} in full. It's free."
+                else "Sign in to Veltora to keep watching ${p.heading}.",
+                primary = "Sign in to watch" to {
+                    nav.popBackStack()
+                    nav.navigate(Routes.player(p.title.id, "full"))   // sign-in screen, then the full video
+                },
+                secondary = "Watch trailer again" to { ended = false; player.seekTo(0); player.play() },
             )
-            Button(
-                onClick = { nav.navigate("profile") { launchSingleTop = true } },
-                colors = ButtonDefaults.buttonColors(containerColor = Red),
-            ) { Text("See plans") }
-            TextButton(onClick = { nav.popBackStack() }) { Text("Not now") }
+            fullAllowed -> Overlay(
+                title = p.heading,
+                message = "Ready for the full video?",
+                primary = "Watch full video" to {
+                    nav.popBackStack()
+                    nav.navigate(Routes.player(p.title.id, "full"))
+                },
+                secondary = "Watch trailer again" to { ended = false; player.seekTo(0); player.play() },
+            )
+            else -> Overlay(
+                title = "Enjoying ${p.heading}?",
+                message = "Choose a plan to watch the full video.",
+                primary = "See plans" to { nav.navigate("profile") { launchSingleTop = true } },
+                secondary = "Not now" to { nav.popBackStack() },
+            )
         }
+        previewOver -> Overlay(
+            title = "Enjoying ${p.heading}?",
+            message = if (signedIn) "Choose a plan to keep watching the full video." else "Sign in to keep watching.",
+            primary = if (signedIn) "See plans" to { nav.navigate("profile") { launchSingleTop = true } }
+            else "Sign in" to { nav.navigate("auth") },
+            secondary = "Not now" to { nav.popBackStack() },
+        )
     }
 }
+
+@Composable
+private fun Overlay(title: String, message: String, primary: Pair<String, () -> Unit>, secondary: Pair<String, () -> Unit>) {
+    Column(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center, color = Color.White)
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp, bottom = 16.dp),
+        )
+        Button(onClick = primary.second, colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text(primary.first) }
+        TextButton(onClick = secondary.second) { Text(secondary.first) }
+    }
+}
+
+private val NETWORK_ERRORS = setOf(
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+)
 
 /** Hides status/navigation bars while the player is open. */
 @Composable

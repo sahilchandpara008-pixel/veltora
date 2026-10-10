@@ -1,5 +1,8 @@
 package com.streams.app.ui.screens
 
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import com.streams.app.data.MetaEvents
 import com.streams.app.ui.theme.Surface1
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -47,6 +50,10 @@ fun ShowsScreen(nav: NavController) {
     val load = rememberLoad(access) { Repo.titles() }
     var filter by remember { mutableStateOf("All") }
     var query by remember { mutableStateOf("") }
+    // Report a search to Meta once the person stops typing.
+    LaunchedEffect(query) {
+        if (query.trim().length >= 3) { delay(1500); MetaEvents.search(query.trim()) }
+    }
 
     Column(Modifier.fillMaxSize()) {
         Text(

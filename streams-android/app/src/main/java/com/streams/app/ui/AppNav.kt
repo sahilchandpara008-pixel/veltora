@@ -1,5 +1,6 @@
 package com.streams.app.ui
 
+import com.streams.app.data.MetaEvents
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -101,6 +102,7 @@ fun AppNav() {
         // Link this install's ad attribution to the signed-in account (server decides; first touch
         // is never overwritten). If that unlocks campaign content, reload the screens.
         if (Attribution.onSessionChanged(userId)) AppState.accessVersion.value++
+        if (userId != null) MetaEvents.onSignedIn()   // new account / new purchases → Meta, once each
     }
     // ...and every time the app comes back to the foreground (e.g. after paying, or once
     // an admin approved the payment), so Premium unlocks without restarting the app.

@@ -1,7 +1,14 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- rounded white play button, centred inside the 72dp safe zone -->
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M45,37.2 C45,35.1 47.3,33.8 49.1,34.9 L73.2,50.1 C74.9,51.2 74.9,53.7 73.2,54.8 L49.1,70 C47.3,71.1 45,69.8 45,67.7 Z" />
+    <!-- red "V" with a white play mark in its notch; all inside the 66dp safe zone -->
+    <path android:pathData="M31,34 L42,34 L54,62 L66,34 L77,34 L58.5,76 L49.5,76 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear"
+                android:startX="54" android:startY="34" android:endX="54" android:endY="76"
+                android:startColor="#FFFF4A55" android:endColor="#FFB3060F" />
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M49.5,37.5 L49.5,48.5 L59,43 Z" />
 </vector>

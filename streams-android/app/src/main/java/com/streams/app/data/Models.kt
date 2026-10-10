@@ -54,12 +54,12 @@ object Audience {
     const val ALL = "all"
     const val ORGANIC = "organic"
     const val ADS = "ads"
-    val values = listOf(ALL, ORGANIC, ADS)
+    val values = listOf(ORGANIC, ADS, ALL)
 
     fun label(a: String) = when (a) {
-        ORGANIC -> "Organic downloads only"
-        ADS -> "Ads downloads only"
-        else -> "Everyone"
+        ORGANIC -> "Organic users only"
+        ADS -> "Ads users only"
+        else -> "Both (organic + ads)"
     }
 }
 
@@ -263,6 +263,19 @@ data class PaymentSettings(
     @SerialName("merchant_code") val merchantCode: String? = null,
     /** Free app: every signed-in user gets all content + cloud storage; no plans or payments are shown. */
     @SerialName("free_mode") val freeMode: Boolean = false,
+    /** Meta (Facebook) ads tracking, set by the owner in Admin → Settings. All public values. */
+    @SerialName("meta_enabled") val metaEnabled: Boolean = false,
+    @SerialName("meta_app_id") val metaAppId: String? = null,
+    @SerialName("meta_client_token") val metaClientToken: String? = null,
+    @SerialName("meta_pixel_id") val metaPixelId: String? = null,
+)
+
+/** admin_meta_status(): whether a Conversions API token is saved (the token itself is never returned). */
+@Serializable
+data class MetaStatus(
+    @SerialName("has_token") val hasToken: Boolean = false,
+    @SerialName("token_hint") val tokenHint: String? = null,
+    @SerialName("test_event_code") val testEventCode: String? = null,
 )
 
 /** A file in the member's private Cloud Storage folder (user-files/<user id>/...). */

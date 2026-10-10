@@ -2454,3 +2454,113 @@ begin
 end $$;
 revoke execute on function public.admin_reports(text) from public, anon;
 grant execute on function public.admin_reports(text) to authenticated;
+
+-- =====================================================================
+-- 28. META (FACEBOOK) ADS TRACKING. The owner enters the Meta IDs in the
+--     admin panel. Public values (App ID + Client Token for the Android
+--     app's SDK, Pixel / dataset ID for the website) live in app_settings;
+--     the Conversions API access token lives in meta_secrets, which no
+--     client can read (only the "meta-capi" Edge Function, service role).
+--     Registration and Purchase events are claimed once per account /
+--     payment here, so the app and the website never report them twice.
+-- =====================================================================
+alter table public.app_settings add column if not exists meta_enabled boolean not null default false;
+alter table public.app_settings add column if not exists meta_app_id text;
+alter table public.app_settings add column if not exists meta_client_token text;
+alter table public.app_settings add column if not exists meta_pixel_id text;
+
+create table if not exists public.meta_secrets (
+  id              int primary key default 1 check (id = 1),
+  capi_token      text,
+  test_event_code text,
+  updated_at      timestamptz not null default now()
+);
+alter table public.meta_secrets enable row level security;   -- no policies: service role only
+
+create table if not exists public.meta_logged (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  key        text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, key)
+);
+alter table public.meta_logged enable row level security;    -- no policies: written by the functions below
+
+-- Owner saves the Conversions API token (empty string keeps the saved one) and test code.
+create or replace function public.admin_set_meta_capi(p_token text, p_test_event_code text)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_owner() is distinct from true then raise exception 'Only the owner can change Meta settings'; end if;
+  insert into public.meta_secrets (id, capi_token, test_event_code, updated_at)
+  values (1, nullif(btrim(coalesce(p_token, '')), ''), nullif(btrim(coalesce(p_test_event_code, '')), ''), now())
+  on conflict (id) do update
+     set capi_token = coalesce(nullif(btrim(coalesce(p_token, '')), ''), meta_secrets.capi_token),
+         test_event_code = nullif(btrim(coalesce(p_test_event_code, '')), ''),
+         updated_at = now();
+  return public.admin_meta_status();
+end $$;
+
+create or replace function public.admin_clear_meta_capi()
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_owner() is distinct from true then raise exception 'Only the owner can change Meta settings'; end if;
+  update public.meta_secrets set capi_token = null, updated_at = now() where id = 1;
+  return public.admin_meta_status();
+end $$;
+
+-- Never returns the token itself.
+create or replace function public.admin_meta_status()
+returns json language plpgsql stable security definer set search_path = public as $$
+declare s public.meta_secrets;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  select * into s from public.meta_secrets where id = 1;
+  return json_build_object(
+    'has_token', coalesce(s.capi_token, '') <> '',
+    'token_hint', case when coalesce(s.capi_token, '') <> '' then '…' || right(s.capi_token, 4) end,
+    'test_event_code', s.test_event_code,
+    'updated_at', s.updated_at);
+end $$;
+
+-- true once per account, and only for accounts created in the last 2 days.
+create or replace function public.claim_meta_registration()
+returns boolean language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); n int;
+begin
+  if uid is null then return false; end if;
+  if not exists (select 1 from auth.users where id = uid and created_at > now() - interval '2 days') then
+    return false;
+  end if;
+  insert into public.meta_logged (user_id, key) values (uid, 'registration') on conflict do nothing;
+  get diagnostics n = row_count;
+  return n = 1;
+end $$;
+
+-- The current user's approved payments (last 7 days) not reported to Meta yet; each is returned once.
+create or replace function public.claim_meta_purchases()
+returns table (payment_id uuid, amount numeric, currency text, plan_name text)
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then return; end if;
+  return query
+    with fresh as (
+      insert into public.meta_logged (user_id, key)
+      select uid, 'purchase:' || p.id from public.payments p
+       where p.user_id = uid and p.status = 'approved'
+         and coalesce(p.verified_at, p.reviewed_at, p.updated_at, p.created_at) > now() - interval '7 days'
+      on conflict do nothing
+      returning key)
+    select p.id, p.amount, coalesce(p.currency, 'INR'), p.plan_name
+      from fresh f join public.payments p on 'purchase:' || p.id = f.key;
+end $$;
+
+revoke execute on function public.admin_set_meta_capi(text, text) from public, anon;
+revoke execute on function public.admin_clear_meta_capi() from public, anon;
+revoke execute on function public.admin_meta_status() from public, anon;
+revoke execute on function public.claim_meta_registration() from public, anon;
+revoke execute on function public.claim_meta_purchases() from public, anon;
+grant execute on function public.admin_set_meta_capi(text, text) to authenticated;
+grant execute on function public.admin_clear_meta_capi() to authenticated;
+grant execute on function public.admin_meta_status() to authenticated;
+grant execute on function public.claim_meta_registration() to authenticated;
+grant execute on function public.claim_meta_purchases() to authenticated;

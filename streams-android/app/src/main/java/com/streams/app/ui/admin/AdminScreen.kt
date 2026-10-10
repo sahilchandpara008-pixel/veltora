@@ -130,7 +130,7 @@ private fun NotFound(nav: NavController) {
 @Composable
 private fun AdminHome(nav: NavController, isOwner: Boolean) {
     val tabs = buildList {
-        add("Overview"); add("Attribution"); add("Payments"); add("Content"); add("Channels"); add("Campaigns")
+        add("Overview"); add("Attribution"); add("Payments"); add("Content"); add("Creators"); add("Channels"); add("Campaigns")
         if (isOwner) { add("Team"); add("Settings") }
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -159,6 +159,7 @@ private fun AdminHome(nav: NavController, isOwner: Boolean) {
                 "Attribution" -> AttributionTab()
                 "Payments" -> PaymentsTab()
                 "Content" -> ContentTab(nav)
+                "Creators" -> CreatorsTab(nav)
                 "Channels" -> ChannelsTab()
                 "Campaigns" -> CampaignsTab()
                 "Team" -> TeamTab()
@@ -397,7 +398,7 @@ private fun ContentTab(nav: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var version by remember { mutableIntStateOf(0) }
-    val load = rememberLoad(version) { Repo.titles() to Repo.channels() }
+    val load = rememberLoad(version) { Repo.titles() to Repo.adminChannels() }
     var deleting by remember { mutableStateOf<Title?>(null) }
 
     fun act(block: suspend () -> Unit) = scope.launch {
@@ -486,7 +487,7 @@ private fun ChannelsTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var version by remember { mutableIntStateOf(0) }
-    val load = rememberLoad(version) { Repo.channels() }
+    val load = rememberLoad(version) { Repo.adminChannels() }
     var editing by remember { mutableStateOf<Channel?>(null) }
 
     SimpleListTab(

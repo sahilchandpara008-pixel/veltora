@@ -2080,3 +2080,323 @@ returns boolean language sql stable security definer set search_path = public as
       where user_id = auth.uid() and status = 'active' and expires_at > now()
     ))
 $$;
+
+-- =====================================================================
+-- 26. CREATOR CHANNELS. Any signed-in user can ask for a channel (name,
+--     description, photo). The admin approves or rejects the request
+--     and picks who sees the channel: everyone ('all'), only organic
+--     installs ('organic') or only Meta-ads installs ('ads'). Once a
+--     channel is approved its owner uploads videos to it; every upload
+--     waits for the admin's approval, who also picks its audience.
+--     Owners change the channel photo/details and edit or delete their
+--     own uploads. Admin-made channels and titles are unaffected
+--     (approved, audience 'all').
+--     Creator files live under creator/<user id>/ in the "images" and
+--     "videos" buckets.
+-- =====================================================================
+alter table public.channels add column if not exists owner_id uuid references auth.users(id) on delete cascade;
+alter table public.channels add column if not exists status text not null default 'approved' check (status in ('pending', 'approved', 'rejected'));
+alter table public.channels add column if not exists audience text not null default 'all' check (audience in ('all', 'organic', 'ads'));
+alter table public.channels add column if not exists avatar_path text;
+alter table public.channels add column if not exists review_note text not null default '';
+alter table public.channels add column if not exists updated_at timestamptz not null default now();
+create index if not exists channels_owner_idx on public.channels (owner_id);
+
+alter table public.titles add column if not exists uploaded_by uuid references auth.users(id) on delete cascade;
+alter table public.titles add column if not exists review_status text not null default 'approved' check (review_status in ('pending', 'approved', 'rejected'));
+alter table public.titles add column if not exists audience text not null default 'all' check (audience in ('all', 'organic', 'ads'));
+alter table public.titles add column if not exists review_note text not null default '';
+create index if not exists titles_uploaded_by_idx on public.titles (uploaded_by);
+
+-- Does the current viewer count as a Meta-ads user? (false for guests;
+-- guests go through the *_for_install functions instead.)
+create or replace function public.viewer_is_meta()
+returns boolean language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and public.is_meta_user()
+$$;
+
+create or replace function public.audience_ok(p_audience text, p_meta boolean)
+returns boolean language sql immutable set search_path = public as $$
+  select p_audience = 'all' or (p_audience = 'ads' and p_meta) or (p_audience = 'organic' and not p_meta)
+$$;
+
+create or replace function public.channel_open(p_channel_id uuid, p_meta boolean)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.channels c
+                  where c.id = p_channel_id and c.status = 'approved'
+                    and public.audience_ok(c.audience, p_meta))
+$$;
+
+-- Titles a viewer with this Meta flag may see (besides drafts/premium rules).
+create or replace function public.title_open(t public.titles, p_meta boolean)
+returns boolean language sql stable security definer set search_path = public as $$
+  select t.published and t.review_status = 'approved'
+     and (not ('STREAMS_SPECIAL' = any (t.tags)) or p_meta)
+     and public.audience_ok(t.audience, p_meta)
+     and (t.channel_id is null or public.channel_open(t.channel_id, p_meta))
+$$;
+
+alter policy "anyone reads channels" on public.channels using (
+  public.is_admin()
+  or (owner_id is not null and owner_id = auth.uid())
+  or (status = 'approved' and public.audience_ok(audience, public.viewer_is_meta()))
+);
+
+alter policy "visible titles" on public.titles using (
+  public.is_admin()
+  or (uploaded_by is not null and uploaded_by = auth.uid())
+  or (public.title_open(titles, public.viewer_is_meta())
+      and (tier <> 'hidden_premium' or public.has_active_subscription()))
+);
+
+create or replace function public.can_stream(object_name text)
+returns boolean language plpgsql stable security definer set search_path = public as $$
+declare t public.titles; m boolean := public.viewer_is_meta();
+begin
+  if public.is_admin() then return true; end if;
+  if auth.uid() is null then return false; end if;
+  -- a creator always plays their own files
+  if split_part(object_name, '/', 1) = 'creator' and split_part(object_name, '/', 2) = auth.uid()::text then
+    return true;
+  end if;
+
+  select * into t from public.titles
+   where published and (trailer_path = object_name or video_path = object_name)
+   limit 1;
+  if not found then
+    select tt.* into t from public.episodes e join public.titles tt on tt.id = e.title_id
+     where tt.published and e.video_path = object_name limit 1;
+    if not found then return false; end if;
+  end if;
+
+  if not public.title_open(t, m) then return false; end if;
+  if t.tier = 'hidden_premium' then return public.has_active_subscription(); end if;
+  if t.trailer_path = object_name then return true; end if;
+  if t.tier = 'free' then return true; end if;
+  return public.has_active_subscription() or t.trailer_path is null;
+end $$;
+
+create or replace function public.catalog_for_install(p_install_id uuid)
+returns setof public.titles language sql stable security definer set search_path = public as $$
+  select t.* from public.titles t
+   where t.tier <> 'hidden_premium'
+     and public.title_open(t, public.is_meta_install(p_install_id))
+   order by t.created_at desc
+$$;
+
+create or replace function public.channels_for_install(p_install_id uuid)
+returns setof public.channels language sql stable security definer set search_path = public as $$
+  select c.* from public.channels c
+   where c.status = 'approved' and public.audience_ok(c.audience, public.is_meta_install(p_install_id))
+   order by c.sort_order, c.name
+$$;
+
+-- ---------- creator side ----------
+create or replace function public.has_approved_channel()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.channels where owner_id = auth.uid() and status = 'approved')
+$$;
+
+create or replace function public.is_own_creator_path(p text)
+returns boolean language sql stable set search_path = public as $$
+  select p is null or (auth.uid() is not null and p like 'creator/' || auth.uid()::text || '/%' and p not like '%..%')
+$$;
+
+create or replace function public.request_channel(p_name text, p_description text, p_avatar_path text)
+returns public.channels language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); n text := btrim(coalesce(p_name, '')); c public.channels;
+begin
+  if uid is null then raise exception 'Sign in to create a channel'; end if;
+  if length(n) < 2 or length(n) > 60 then raise exception 'Channel name must be 2-60 characters'; end if;
+  if length(coalesce(p_description, '')) > 1000 then raise exception 'Description is too long'; end if;
+  if not public.is_own_creator_path(nullif(p_avatar_path, '')) then raise exception 'Invalid photo'; end if;
+  if exists (select 1 from public.channels where owner_id = uid and status = 'pending') then
+    raise exception 'You already have a channel request waiting for approval';
+  end if;
+  if (select count(*) from public.channels where owner_id = uid) >= 5 then
+    raise exception 'You can have at most 5 channels';
+  end if;
+  insert into public.channels (name, description, owner_id, status, audience, avatar_path, sort_order)
+  values (n, btrim(coalesce(p_description, '')), uid, 'pending', 'all', nullif(p_avatar_path, ''), 1000)
+  returning * into c;
+  return c;
+end $$;
+
+-- Owner edits name/description/photo. A rejected request is sent for review again.
+create or replace function public.update_my_channel(p_id uuid, p_name text, p_description text, p_avatar_path text)
+returns public.channels language plpgsql security definer set search_path = public as $$
+declare n text := btrim(coalesce(p_name, '')); c public.channels;
+begin
+  select * into c from public.channels where id = p_id and owner_id = auth.uid() for update;
+  if not found then raise exception 'Channel not found'; end if;
+  if length(n) < 2 or length(n) > 60 then raise exception 'Channel name must be 2-60 characters'; end if;
+  if length(coalesce(p_description, '')) > 1000 then raise exception 'Description is too long'; end if;
+  if not public.is_own_creator_path(nullif(p_avatar_path, '')) then raise exception 'Invalid photo'; end if;
+  update public.channels
+     set name = n, description = btrim(coalesce(p_description, '')), avatar_path = nullif(p_avatar_path, ''),
+         status = case when status = 'rejected' then 'pending' else status end,
+         updated_at = now()
+   where id = p_id
+  returning * into c;
+  return c;
+end $$;
+
+-- Create (p_id null) or edit one of the owner's videos. New videos and
+-- changed video files go back to the admin for approval.
+create or replace function public.creator_save_title(
+  p_id uuid, p_channel_id uuid, p_name text, p_description text,
+  p_cover_path text, p_video_path text, p_trailer_path text, p_duration_seconds int)
+returns public.titles language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); n text := btrim(coalesce(p_name, '')); t public.titles; ch public.channels;
+begin
+  if uid is null then raise exception 'Sign in first'; end if;
+  select * into ch from public.channels where id = p_channel_id and owner_id = uid;
+  if not found then raise exception 'Channel not found'; end if;
+  if ch.status <> 'approved' then raise exception 'Your channel is not approved yet'; end if;
+  if length(n) < 1 or length(n) > 120 then raise exception 'Title must be 1-120 characters'; end if;
+  if length(coalesce(p_description, '')) > 3000 then raise exception 'Description is too long'; end if;
+  if nullif(p_video_path, '') is null then raise exception 'Upload a video first'; end if;
+  if not (public.is_own_creator_path(nullif(p_cover_path, '')) and public.is_own_creator_path(p_video_path)
+          and public.is_own_creator_path(nullif(p_trailer_path, ''))) then
+    raise exception 'Invalid file';
+  end if;
+
+  if p_id is null then
+    insert into public.titles (kind, name, description, channel_id, cover_path, trailer_path, video_path,
+                               duration_seconds, tier, published, uploaded_by, review_status, audience)
+    values ('movie', n, btrim(coalesce(p_description, '')), p_channel_id, nullif(p_cover_path, ''),
+            nullif(p_trailer_path, ''), p_video_path, p_duration_seconds, 'free', false, uid, 'pending', ch.audience)
+    returning * into t;
+    return t;
+  end if;
+
+  select * into t from public.titles where id = p_id and uploaded_by = uid for update;
+  if not found then raise exception 'Video not found'; end if;
+  update public.titles
+     set name = n, description = btrim(coalesce(p_description, '')), channel_id = p_channel_id,
+         cover_path = nullif(p_cover_path, ''), trailer_path = nullif(p_trailer_path, ''),
+         video_path = p_video_path, duration_seconds = p_duration_seconds,
+         review_status = case
+           when t.review_status = 'rejected'
+             or t.video_path is distinct from p_video_path
+             or t.trailer_path is distinct from nullif(p_trailer_path, '') then 'pending'
+           else t.review_status end,
+         published = case
+           when t.review_status = 'rejected'
+             or t.video_path is distinct from p_video_path
+             or t.trailer_path is distinct from nullif(p_trailer_path, '') then false
+           else t.published end
+   where id = p_id
+  returning * into t;
+  return t;
+end $$;
+
+-- Owners delete their own videos and channels straight from the table
+-- (the app first removes the files in creator/<id>/ from storage).
+create policy "creators delete own titles" on public.titles for delete to authenticated
+  using (uploaded_by is not null and uploaded_by = auth.uid());
+create policy "creators delete own channels" on public.channels for delete to authenticated
+  using (owner_id is not null and owner_id = auth.uid());
+-- ---------- admin side ----------
+create or replace function public.admin_review_channel(p_id uuid, p_status text, p_audience text, p_note text)
+returns public.channels language plpgsql security definer set search_path = public as $$
+declare c public.channels;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  if p_status not in ('pending', 'approved', 'rejected') then raise exception 'Bad status'; end if;
+  if p_audience not in ('all', 'organic', 'ads') then raise exception 'Bad audience'; end if;
+  update public.channels
+     set status = p_status, audience = p_audience, review_note = coalesce(p_note, ''), updated_at = now()
+   where id = p_id
+  returning * into c;
+  if not found then raise exception 'Channel not found'; end if;
+  return c;
+end $$;
+
+create or replace function public.admin_review_title(p_id uuid, p_status text, p_audience text, p_note text)
+returns public.titles language plpgsql security definer set search_path = public as $$
+declare t public.titles;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  if p_status not in ('pending', 'approved', 'rejected') then raise exception 'Bad status'; end if;
+  if p_audience not in ('all', 'organic', 'ads') then raise exception 'Bad audience'; end if;
+  update public.titles
+     set review_status = p_status, audience = p_audience, review_note = coalesce(p_note, ''),
+         published = (p_status = 'approved')
+   where id = p_id
+  returning * into t;
+  if not found then raise exception 'Video not found'; end if;
+  return t;
+end $$;
+
+-- Review queue for the admin panel, with the creator's email.
+create or replace function public.admin_creator_channels(p_status text default null)
+returns table (id uuid, name text, description text, avatar_path text, status text, audience text,
+               review_note text, owner_id uuid, owner_email text, video_count bigint, created_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  return query
+    select c.id, c.name, c.description, c.avatar_path, c.status, c.audience, c.review_note, c.owner_id,
+           u.email::text, (select count(*) from public.titles t where t.channel_id = c.id), c.created_at
+      from public.channels c join auth.users u on u.id = c.owner_id
+     where p_status is null or c.status = p_status
+     order by (c.status = 'pending') desc, c.created_at desc;
+end $$;
+
+create or replace function public.admin_creator_titles(p_status text default null)
+returns table (id uuid, name text, description text, cover_path text, video_path text, trailer_path text,
+               review_status text, audience text, review_note text, channel_id uuid, channel_name text,
+               channel_audience text, uploader_email text, created_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  return query
+    select t.id, t.name, t.description, t.cover_path, t.video_path, t.trailer_path, t.review_status,
+           t.audience, t.review_note, t.channel_id, c.name, c.audience, u.email::text, t.created_at
+      from public.titles t
+      join auth.users u on u.id = t.uploaded_by
+      left join public.channels c on c.id = t.channel_id
+     where t.uploaded_by is not null and (p_status is null or t.review_status = p_status)
+     order by (t.review_status = 'pending') desc, t.created_at desc;
+end $$;
+
+-- ---------- storage: creators write only inside creator/<their id>/ ----------
+create policy "creators write own images" on storage.objects for insert to authenticated
+  with check (bucket_id = 'images' and (storage.foldername(name))[1] = 'creator'
+              and (storage.foldername(name))[2] = auth.uid()::text);
+create policy "creators update own images" on storage.objects for update to authenticated
+  using (bucket_id = 'images' and (storage.foldername(name))[1] = 'creator'
+         and (storage.foldername(name))[2] = auth.uid()::text);
+create policy "creators delete own images" on storage.objects for delete to authenticated
+  using (bucket_id = 'images' and (storage.foldername(name))[1] = 'creator'
+         and (storage.foldername(name))[2] = auth.uid()::text);
+create policy "creators upload videos" on storage.objects for insert to authenticated
+  with check (bucket_id = 'videos' and (storage.foldername(name))[1] = 'creator'
+              and (storage.foldername(name))[2] = auth.uid()::text and public.has_approved_channel());
+create policy "creators delete own videos" on storage.objects for delete to authenticated
+  using (bucket_id = 'videos' and (storage.foldername(name))[1] = 'creator'
+         and (storage.foldername(name))[2] = auth.uid()::text);
+
+-- ---------- function access ----------
+revoke execute on function public.title_open(public.titles, boolean) from public;
+grant execute on function public.title_open(public.titles, boolean) to anon, authenticated;
+revoke execute on function public.channel_open(uuid, boolean) from public;
+grant execute on function public.channel_open(uuid, boolean) to anon, authenticated;
+grant execute on function public.viewer_is_meta() to anon, authenticated;
+grant execute on function public.audience_ok(text, boolean) to anon, authenticated;
+grant execute on function public.channels_for_install(uuid) to anon, authenticated;
+revoke execute on function public.request_channel(text, text, text) from public, anon;
+revoke execute on function public.update_my_channel(uuid, text, text, text) from public, anon;
+revoke execute on function public.creator_save_title(uuid, uuid, text, text, text, text, text, int) from public, anon;
+revoke execute on function public.admin_review_channel(uuid, text, text, text) from public, anon;
+revoke execute on function public.admin_review_title(uuid, text, text, text) from public, anon;
+revoke execute on function public.admin_creator_channels(text) from public, anon;
+revoke execute on function public.admin_creator_titles(text) from public, anon;
+grant execute on function public.request_channel(text, text, text) to authenticated;
+grant execute on function public.update_my_channel(uuid, text, text, text) to authenticated;
+grant execute on function public.creator_save_title(uuid, uuid, text, text, text, text, text, int) to authenticated;
+grant execute on function public.admin_review_channel(uuid, text, text, text) to authenticated;
+grant execute on function public.admin_review_title(uuid, text, text, text) to authenticated;
+grant execute on function public.admin_creator_channels(text) to authenticated;
+grant execute on function public.admin_creator_titles(text) to authenticated;

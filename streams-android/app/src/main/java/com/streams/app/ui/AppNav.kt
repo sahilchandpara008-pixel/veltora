@@ -52,6 +52,7 @@ import com.streams.app.ui.screens.SetPasswordScreen
 import com.streams.app.ui.screens.ChannelDetailScreen
 import com.streams.app.ui.screens.ChannelsScreen
 import com.streams.app.ui.screens.CloudScreen
+import com.streams.app.ui.screens.CreatorScreen
 import com.streams.app.ui.screens.HomeScreen
 import com.streams.app.ui.screens.PlayerScreen
 import com.streams.app.ui.screens.ProfileScreen
@@ -137,6 +138,10 @@ fun AppNav() {
             composable("shows") { ShowsScreen(nav) }
             composable("cloud") { CloudScreen(nav) }
             composable("profile") { ProfileScreen(nav) }
+            composable("creator") {
+                if (!signedIn) AuthScreen(onClose = { nav.popBackStack() }, reason = "Sign in to create your channel.")
+                else CreatorScreen(nav)
+            }
             composable("channel/{id}") { ChannelDetailScreen(nav, it.arguments?.getString("id")!!) }
             composable("title/{id}") { TitleDetailScreen(nav, it.arguments?.getString("id")!!) }
             composable(

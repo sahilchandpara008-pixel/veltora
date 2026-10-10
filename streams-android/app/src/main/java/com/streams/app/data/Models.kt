@@ -28,6 +28,72 @@ data class Channel(
     val description: String = "",
     @SerialName("is_premium") val isPremium: Boolean = false,
     @SerialName("sort_order") val sortOrder: Int = 0,
+    /** Set for channels created by users (creator channels); null for admin-made channels. */
+    @SerialName("owner_id") val ownerId: String? = null,
+    val status: String = Review.APPROVED,
+    val audience: String = Audience.ALL,
+    @SerialName("avatar_path") val avatarPath: String? = null,
+    @SerialName("review_note") val reviewNote: String = "",
+)
+
+/** Admin review state of creator channels and uploads. */
+object Review {
+    const val PENDING = "pending"
+    const val APPROVED = "approved"
+    const val REJECTED = "rejected"
+
+    fun label(status: String) = when (status) {
+        PENDING -> "Pending review"
+        APPROVED -> "Approved"
+        else -> "Rejected"
+    }
+}
+
+/** Who sees a channel / title: everyone, only organic installs, or only Meta-ads installs. */
+object Audience {
+    const val ALL = "all"
+    const val ORGANIC = "organic"
+    const val ADS = "ads"
+    val values = listOf(ALL, ORGANIC, ADS)
+
+    fun label(a: String) = when (a) {
+        ORGANIC -> "Organic downloads only"
+        ADS -> "Ads downloads only"
+        else -> "Everyone"
+    }
+}
+
+/** Row of admin_creator_channels(). */
+@Serializable
+data class CreatorChannelRow(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    @SerialName("avatar_path") val avatarPath: String? = null,
+    val status: String,
+    val audience: String,
+    @SerialName("review_note") val reviewNote: String = "",
+    @SerialName("owner_email") val ownerEmail: String? = null,
+    @SerialName("video_count") val videoCount: Long = 0,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
+/** Row of admin_creator_titles(). */
+@Serializable
+data class CreatorTitleRow(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    @SerialName("cover_path") val coverPath: String? = null,
+    @SerialName("video_path") val videoPath: String? = null,
+    @SerialName("trailer_path") val trailerPath: String? = null,
+    @SerialName("review_status") val reviewStatus: String,
+    val audience: String,
+    @SerialName("review_note") val reviewNote: String = "",
+    @SerialName("channel_name") val channelName: String? = null,
+    @SerialName("channel_audience") val channelAudience: String? = null,
+    @SerialName("uploader_email") val uploaderEmail: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
 )
 
 @Serializable
@@ -48,7 +114,13 @@ data class Title(
     @SerialName("preview_count") val previewCount: Long = 0,
     /** Content tags, e.g. STREAMS_SPECIAL (Meta-campaign content, filtered by the server). */
     val tags: List<String> = emptyList(),
+    /** Set for videos uploaded by a channel creator; they go live after admin approval. */
+    @SerialName("uploaded_by") val uploadedBy: String? = null,
+    @SerialName("review_status") val reviewStatus: String = Review.APPROVED,
+    val audience: String = Audience.ALL,
+    @SerialName("review_note") val reviewNote: String = "",
 ) {
+    val isLive get() = published && reviewStatus == Review.APPROVED
     val isSeries get() = kind == "series"
     val isStreamsSpecial get() = Tags.STREAMS_SPECIAL in tags
 }

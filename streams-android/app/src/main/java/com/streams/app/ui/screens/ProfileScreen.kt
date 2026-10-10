@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.CircularProgressIndicator
@@ -175,6 +176,15 @@ fun ProfileScreen(nav: NavController) {
                             onClick = { nav.navigate("admin") },
                         )
                     }
+                }
+
+                item {
+                    MenuRow(
+                        icon = Icons.Default.VideoLibrary,
+                        title = "My channels",
+                        subtitle = "Create a channel and upload your videos",
+                        onClick = { nav.navigate("creator") },
+                    )
                 }
 
                 if (!free) {

@@ -23,9 +23,10 @@ Deno.serve(async (req) => {
     .select("source").eq("install_id", install_id).maybeSingle();
   if (install?.source !== "meta") return json({ error: "Sign in to watch this trailer." }, 403);
 
-  const { data: title } = await admin.from("titles")
-    .select("published, tier, trailer_path").eq("id", title_id).maybeSingle();
-  if (!title || !title.published || title.tier === "hidden_premium" || !title.trailer_path) {
+  // Same rules as the guest catalog: published, approved, not exclusive, right audience/channel.
+  const { data: title } = await admin.rpc("catalog_for_install", { p_install_id: install_id })
+    .select("trailer_path").eq("id", title_id).maybeSingle();
+  if (!title || !title.trailer_path) {
     return json({ error: "This trailer isn't available." }, 404);
   }
 

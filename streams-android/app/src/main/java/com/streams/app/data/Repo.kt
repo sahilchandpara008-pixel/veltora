@@ -105,9 +105,13 @@ object Repo {
             supabase.postgrest.rpc("catalog_for_install", buildJsonObject { put("p_install_id", Attribution.installId) })
                 .decodeList()
         } else {
+            val uid = supabase.auth.currentUserOrNull()?.id
             supabase.from("titles").select {
                 order("created_at", Order.DESCENDING)
-            }.decodeList()
+            }.decodeList<Title>()
+                // A creator's own uploads are readable while in review; they appear in the
+                // catalog only once approved (they're managed under Profile → My channels).
+                .filter { it.uploadedBy == null || it.uploadedBy != uid || it.isLive }
         }
 
     suspend fun title(id: String): Title? =
@@ -123,7 +127,18 @@ object Repo {
         return body["url"]?.jsonPrimitive?.content ?: error(body["error"]?.jsonPrimitive?.content ?: "Sign in to watch.")
     }
 
+    /** Channels shown to viewers: approved and meant for this viewer (organic / ads), decided by the server. */
     suspend fun channels(): List<Channel> =
+        if (!signedIn()) {
+            supabase.postgrest.rpc("channels_for_install", buildJsonObject { put("p_install_id", Attribution.installId) })
+                .decodeList()
+        } else {
+            supabase.from("channels").select { order("sort_order", Order.ASCENDING) }
+                .decodeList<Channel>().filter { it.status == Review.APPROVED }
+        }
+
+    /** Every channel the admin can see, including creator requests. */
+    suspend fun adminChannels(): List<Channel> =
         supabase.from("channels").select { order("sort_order", Order.ASCENDING) }.decodeList()
 
     suspend fun episodes(titleId: String): List<Episode> =
@@ -463,4 +478,83 @@ object Repo {
                 tmp.delete()
             }
         }
+
+    // ---------------------------------------------------------------- creator channels
+    private fun myId(): String = supabase.auth.currentUserOrNull()?.id ?: error("Please sign in first")
+
+    /** Storage folder a creator may write to (images + videos buckets). */
+    fun creatorFolder(): String = "creator/${myId()}"
+
+    suspend fun myChannels(): List<Channel> =
+        supabase.from("channels").select {
+            filter { eq("owner_id", myId()) }
+            order("created_at", Order.DESCENDING)
+        }.decodeList()
+
+    suspend fun myUploads(): List<Title> =
+        supabase.from("titles").select {
+            filter { eq("uploaded_by", myId()) }
+            order("created_at", Order.DESCENDING)
+        }.decodeList()
+
+    suspend fun requestChannel(name: String, description: String, avatarPath: String?): Channel =
+        supabase.postgrest.rpc("request_channel", buildJsonObject {
+            put("p_name", name.trim()); put("p_description", description.trim()); put("p_avatar_path", avatarPath)
+        }).decodeAs()
+
+    suspend fun updateMyChannel(id: String, name: String, description: String, avatarPath: String?): Channel =
+        supabase.postgrest.rpc("update_my_channel", buildJsonObject {
+            put("p_id", id); put("p_name", name.trim()); put("p_description", description.trim()); put("p_avatar_path", avatarPath)
+        }).decodeAs()
+
+    /** Deletes the channel, its videos and their files. */
+    suspend fun deleteMyChannel(ch: Channel, uploads: List<Title>) {
+        uploads.filter { it.channelId == ch.id }.forEach { deleteMyUpload(it) }
+        supabase.from("channels").delete { filter { eq("id", ch.id) } }
+        ch.avatarPath?.let { p -> runCatching { supabase.storage.from("images").delete(p) } }
+    }
+
+    suspend fun creatorSaveTitle(
+        id: String?, channelId: String, name: String, description: String,
+        coverPath: String?, videoPath: String, trailerPath: String?, durationSeconds: Int?,
+    ): Title =
+        supabase.postgrest.rpc("creator_save_title", buildJsonObject {
+            put("p_id", id); put("p_channel_id", channelId); put("p_name", name.trim())
+            put("p_description", description.trim()); put("p_cover_path", coverPath)
+            put("p_video_path", videoPath); put("p_trailer_path", trailerPath); put("p_duration_seconds", durationSeconds)
+        }).decodeAs()
+
+    suspend fun deleteMyUpload(t: Title) {
+        supabase.from("titles").delete { filter { eq("id", t.id) } }
+        runCatching {
+            val videos = listOfNotNull(t.videoPath, t.trailerPath)
+            if (videos.isNotEmpty()) supabase.storage.from("videos").delete(videos)
+            t.coverPath?.let { supabase.storage.from("images").delete(it) }
+        }
+    }
+
+    /** Removes a file the creator replaced (e.g. old channel photo). */
+    suspend fun deleteCreatorFile(bucket: String, path: String?) {
+        if (path.isNullOrBlank()) return
+        runCatching { supabase.storage.from(bucket).delete(path) }
+    }
+
+    // ---------------------------------------------------------------- admin: creator review
+    suspend fun adminCreatorChannels(status: String?): List<CreatorChannelRow> =
+        supabase.postgrest.rpc("admin_creator_channels", buildJsonObject { put("p_status", status) }).decodeList()
+
+    suspend fun adminCreatorTitles(status: String?): List<CreatorTitleRow> =
+        supabase.postgrest.rpc("admin_creator_titles", buildJsonObject { put("p_status", status) }).decodeList()
+
+    suspend fun reviewChannel(id: String, status: String, audience: String, note: String) {
+        supabase.postgrest.rpc("admin_review_channel", buildJsonObject {
+            put("p_id", id); put("p_status", status); put("p_audience", audience); put("p_note", note)
+        })
+    }
+
+    suspend fun reviewTitle(id: String, status: String, audience: String, note: String) {
+        supabase.postgrest.rpc("admin_review_title", buildJsonObject {
+            put("p_id", id); put("p_status", status); put("p_audience", audience); put("p_note", note)
+        })
+    }
 }

@@ -126,7 +126,7 @@ fun ContentEditorScreen(nav: NavController, titleId: String?) {
 
     LaunchedEffect(titleId) {
         runCatching {
-            channels = Repo.channels()
+            channels = Repo.adminChannels()
             if (titleId != null) {
                 val t = Repo.title(titleId) ?: error("Title not found")
                 existing = t

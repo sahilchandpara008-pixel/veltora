@@ -127,14 +127,7 @@ private fun ChannelCard(ch: Channel, titles: List<Title>, onClick: () -> Unit) {
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(
-                Brush.linearGradient(listOf(Red, Color(0xFF7F0A12))),
-            ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(ch.name.take(1).uppercase(), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Poppins)
-        }
+        ChannelAvatar(ch.name, ch.avatarPath, 56)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -188,7 +181,11 @@ fun ChannelDetailScreen(nav: NavController, channelId: String) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(Modifier.statusBarsPadding()) {
                         IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                        Text(ch?.name ?: "Channel", style = MaterialTheme.typography.headlineMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ChannelAvatar(ch?.name ?: "Channel", ch?.avatarPath, 48)
+                            Spacer(Modifier.width(12.dp))
+                            Text(ch?.name ?: "Channel", style = MaterialTheme.typography.headlineMedium)
+                        }
                         ch?.description?.takeIf { it.isNotBlank() }?.let {
                             Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
                         }

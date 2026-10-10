@@ -80,8 +80,16 @@ jobs:
           fi
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           # Same release build as an APK, to install on a phone and test before uploading the .aab.
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease assembleRelease --stacktrace
+          set +e
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease assembleRelease --stacktrace 2>&1 | tee release-build.log
+          status=${PIPESTATUS[0]}
+          set -e
           rm -f "$RUNNER_TEMP/upload.jks"
+          if [ "$status" -ne 0 ]; then
+            # Show the cause as annotations on the run page (logs aren't always easy to open).
+            grep -E "^e: |Missing class|ERROR:|Error:|What went wrong|> " release-build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+            exit "$status"
+          fi
           cp app/build/outputs/bundle/release/app-release.aab "Veltora-v1.1.${{ github.run_number }}.aab"
           cp app/build/outputs/apk/release/app-release.apk "Veltora-release-test-v1.1.${{ github.run_number }}.apk"
           echo "built=true" >> "$GITHUB_OUTPUT"

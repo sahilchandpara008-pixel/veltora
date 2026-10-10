@@ -71,25 +71,59 @@ Privacy: https://veltora-app.lovable.app/privacy
 | Government app / Financial features / Health | No / None / No |
 | Account deletion | In-app (Profile → Delete account) and web URL: https://veltora-app.lovable.app/delete-account |
 | Child safety standards (for apps with user content) | https://veltora-app.lovable.app/child-safety · contact perfumwala@gmail.com |
-| Advertising ID | **No**, the app doesn't use the advertising ID. |
+| Advertising ID | **Yes**. The Meta SDK uses it for Analytics and Advertising or marketing (measuring Meta ads). |
 
 ### Data safety answers
 General answers:
 - Data collected: **Yes**
-- Shared with third parties: **No**
+- Data shared: **Yes**. Meta receives it once Meta tracking is turned on in Admin → Settings.
 - Encrypted in transit: **Yes**
 - Users can request deletion: **Yes**
 
-| Data type | Collected | Optional? | Purpose |
-|---|---|---|---|
-| Personal info → **Email address** | Yes | Required | Account management, App functionality |
-| Photos and videos → **Photos**, **Videos** | Yes | Optional (creators / Cloud) | App functionality |
-| Files and docs | Yes | Optional (Cloud Storage) | App functionality |
-| App activity → **App interactions** (what is watched, view counts) | Yes | Required | Analytics, App functionality |
-| App activity → **Other user-generated content** (channel names/descriptions, reports) | Yes | Optional | App functionality |
-| Device or other IDs (random install ID made by the app) | Yes | Required | Analytics |
+| Data type | Collected | Shared (with Meta) | Optional? | Purpose |
+|---|---|---|---|---|
+| Personal info → **Email address** | Yes | No | Required | Account management, App functionality |
+| Photos and videos → **Photos**, **Videos** | Yes | No | Optional (creators / Cloud) | App functionality |
+| Files and docs | Yes | No | Optional (Cloud Storage) | App functionality |
+| App activity → **App interactions** (installs, opens, content views, video plays, searches) | Yes | **Yes** | Required | Analytics, Advertising or marketing |
+| App activity → **Other user-generated content** (channel names/descriptions, reports) | Yes | No | Optional | App functionality |
+| Financial info → **Purchase history** (only when paid plans are on) | Yes | **Yes** | Optional | Analytics, Advertising or marketing |
+| Device or other IDs (advertising ID, app install ID) | Yes | **Yes** | Required | Analytics, Advertising or marketing |
 
-Not collected: location, contacts, financial info, messages, audio, health, web history. (Free app: no payment data. Turning paid plans on later means updating this form and using Google Play Billing or Play's alternative billing.)
+Not collected: location, contacts, messages, audio, health, web history.
+
+**Advertising ID declaration:** answer **Yes**. The app uses the advertising ID through the Meta SDK, for Analytics and for Advertising or marketing (measuring Meta ads).
+
+## 4b. Meta (Facebook) ads tracking setup
+
+1. On **developers.facebook.com**, create an app with the use case **"Other" → "Business"**.
+   - Under **Settings → Basic**, add the **Android** platform.
+   - Package name: `com.veltora.app`
+   - Class name: `com.streams.app.MainActivity`
+2. Copy the **App ID** and the **Client Token** (Settings → Advanced).
+3. In **Events Manager**:
+   - Connect the app to your **ad account**.
+   - For the website, create a **Pixel / dataset** and generate a **Conversions API access token**.
+4. In the Veltora app go to **Admin → Settings → Meta (Facebook) ads tracking**.
+   - Paste the App ID, Client Token, Pixel ID and access token.
+   - Turn **Tracking on** and tap **Save**.
+   - The app starts the Meta SDK from its next start.
+5. Testing:
+   - Put the **Test event code** from Events Manager → Test events into the admin field.
+   - Open the app or website and watch the events arrive.
+   - Clear the code when you're done.
+
+**Events sent:**
+
+| Where | Events |
+|---|---|
+| App | install / app open (automatic), `CompleteRegistration`, `ViewContent`, `Search`, `VideoPlay`, `TrailerComplete`, `Purchase` with amount |
+| Website | `PageView`, `ViewContent`, `Search`, `VideoPlay`, `TrailerComplete`, `CompleteRegistration`, `Purchase`. Each is sent from the browser Pixel and from the server (Conversions API) with the same event ID, so Meta counts it once. |
+
+**ROAS / value campaigns** need `Purchase` events with a value.
+- While Veltora is free, there are no purchases. Optimise **App promotion** campaigns for **installs** or for an app event such as `CompleteRegistration` or `VideoPlay`.
+- When paid plans are switched on, every approved payment is sent once as `Purchase` with its amount, and Meta's **value (ROAS)** optimisation can be used.
+- Google Play requires Play Billing (or Play's alternative billing) for selling plans inside an app distributed on Play.
 
 ## 5. Ads vs organic on Play
 

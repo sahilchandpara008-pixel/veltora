@@ -2564,3 +2564,106 @@ grant execute on function public.admin_clear_meta_capi() to authenticated;
 grant execute on function public.admin_meta_status() to authenticated;
 grant execute on function public.claim_meta_registration() to authenticated;
 grant execute on function public.claim_meta_purchases() to authenticated;
+
+-- =====================================================================
+-- 29. APPROVED CHANNELS PUBLISH DIRECTLY + JOINING CHANNELS.
+--     Once the admin approves a channel, its owner's uploads go live at
+--     once for that channel's audience (the admin can still unpublish a
+--     video in Admin → Creators). Changing a channel's audience moves its
+--     creator videos to the same audience. Signed-in users join (follow)
+--     the channels they are allowed to see.
+-- =====================================================================
+create or replace function public.creator_save_title(
+  p_id uuid, p_channel_id uuid, p_name text, p_description text,
+  p_cover_path text, p_video_path text, p_trailer_path text, p_duration_seconds int)
+returns public.titles language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); n text := btrim(coalesce(p_name, '')); t public.titles; ch public.channels;
+begin
+  if uid is null then raise exception 'Sign in first'; end if;
+  select * into ch from public.channels where id = p_channel_id and owner_id = uid;
+  if not found then raise exception 'Channel not found'; end if;
+  if ch.status <> 'approved' then raise exception 'Your channel is not approved yet'; end if;
+  if length(n) < 1 or length(n) > 120 then raise exception 'Title must be 1-120 characters'; end if;
+  if length(coalesce(p_description, '')) > 3000 then raise exception 'Description is too long'; end if;
+  if nullif(p_video_path, '') is null then raise exception 'Upload a video first'; end if;
+  if not (public.is_own_creator_path(nullif(p_cover_path, '')) and public.is_own_creator_path(p_video_path)
+          and public.is_own_creator_path(nullif(p_trailer_path, ''))) then
+    raise exception 'Invalid file';
+  end if;
+
+  if p_id is null then
+    -- approved channel: live straight away, for the channel's audience
+    insert into public.titles (kind, name, description, channel_id, cover_path, trailer_path, video_path,
+                               duration_seconds, tier, published, uploaded_by, review_status, audience)
+    values ('movie', n, btrim(coalesce(p_description, '')), p_channel_id, nullif(p_cover_path, ''),
+            nullif(p_trailer_path, ''), p_video_path, p_duration_seconds, 'free', true, uid, 'approved', ch.audience)
+    returning * into t;
+    return t;
+  end if;
+
+  select * into t from public.titles where id = p_id and uploaded_by = uid for update;
+  if not found then raise exception 'Video not found'; end if;
+  -- edits keep the admin's decision: an unpublished (rejected) video stays unpublished
+  update public.titles
+     set name = n, description = btrim(coalesce(p_description, '')), channel_id = p_channel_id,
+         cover_path = nullif(p_cover_path, ''), trailer_path = nullif(p_trailer_path, ''),
+         video_path = p_video_path, duration_seconds = p_duration_seconds,
+         review_status = case when t.review_status = 'pending' then 'approved' else t.review_status end,
+         published = (case when t.review_status = 'pending' then 'approved' else t.review_status end) = 'approved',
+         audience = case when t.channel_id is distinct from p_channel_id then ch.audience else t.audience end
+   where id = p_id
+  returning * into t;
+  return t;
+end $$;
+
+-- Approving / re-targeting a channel also applies to its creator videos.
+create or replace function public.admin_review_channel(p_id uuid, p_status text, p_audience text, p_note text)
+returns public.channels language plpgsql security definer set search_path = public as $$
+declare c public.channels;
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  if p_status not in ('pending', 'approved', 'rejected') then raise exception 'Bad status'; end if;
+  if p_audience not in ('all', 'organic', 'ads') then raise exception 'Bad audience'; end if;
+  update public.channels
+     set status = p_status, audience = p_audience, review_note = coalesce(p_note, ''), updated_at = now()
+   where id = p_id
+  returning * into c;
+  if not found then raise exception 'Channel not found'; end if;
+  update public.titles set audience = p_audience where channel_id = p_id and uploaded_by is not null;
+  if p_status = 'approved' then
+    update public.titles set review_status = 'approved', published = true
+     where channel_id = p_id and uploaded_by is not null and review_status = 'pending';
+  end if;
+  return c;
+end $$;
+
+-- Videos waiting under the old rules in channels that are already approved go live now.
+update public.titles t set review_status = 'approved', published = true, audience = c.audience
+  from public.channels c
+ where c.id = t.channel_id and c.status = 'approved' and t.uploaded_by is not null and t.review_status = 'pending';
+
+-- ---------- joining channels ----------
+create table if not exists public.channel_members (
+  channel_id uuid not null references public.channels(id) on delete cascade,
+  user_id    uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (channel_id, user_id)
+);
+alter table public.channel_members enable row level security;
+create index if not exists channel_members_user_idx on public.channel_members (user_id);
+create policy "members read own joins" on public.channel_members for select to authenticated
+  using (user_id = auth.uid());
+create policy "members join visible channels" on public.channel_members for insert to authenticated
+  with check (user_id = auth.uid() and public.channel_open(channel_id, public.viewer_is_meta()));
+create policy "members leave" on public.channel_members for delete to authenticated
+  using (user_id = auth.uid());
+
+-- Member counts for channels this viewer can see.
+create or replace function public.channel_member_counts()
+returns table (channel_id uuid, members bigint)
+language sql stable security definer set search_path = public as $$
+  select m.channel_id, count(*) from public.channel_members m
+   where public.channel_open(m.channel_id, public.viewer_is_meta())
+   group by m.channel_id
+$$;
+grant execute on function public.channel_member_counts() to anon, authenticated;

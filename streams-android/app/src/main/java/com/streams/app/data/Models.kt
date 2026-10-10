@@ -63,6 +63,13 @@ object Audience {
     }
 }
 
+/** Row of channel_member_counts(). */
+@Serializable
+data class MemberCount(
+    @SerialName("channel_id") val channelId: String,
+    val members: Long = 0,
+)
+
 /** Reasons for reporting a creator's channel or video (content_reports.reason). */
 object ReportReason {
     val all = listOf(

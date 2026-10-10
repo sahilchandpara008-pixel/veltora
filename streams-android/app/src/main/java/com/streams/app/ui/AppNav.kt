@@ -1,5 +1,6 @@
 package com.streams.app.ui
 
+import com.streams.app.data.ChannelJoins
 import com.streams.app.data.MetaEvents
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -103,6 +104,7 @@ fun AppNav() {
         // is never overwritten). If that unlocks campaign content, reload the screens.
         if (Attribution.onSessionChanged(userId)) AppState.accessVersion.value++
         if (userId != null) MetaEvents.onSignedIn()   // new account / new purchases → Meta, once each
+        ChannelJoins.refresh()
     }
     // ...and every time the app comes back to the foreground (e.g. after paying, or once
     // an admin approved the payment), so Premium unlocks without restarting the app.

@@ -10,6 +10,7 @@ import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.github.jan.supabase.storage.upload
@@ -612,4 +613,25 @@ object Repo {
         }).decodeAs()
 
     suspend fun clearMetaCapi(): MetaStatus = supabase.postgrest.rpc("admin_clear_meta_capi").decodeAs()
+
+    // ---------------------------------------------------------------- joining channels
+    /** Members per channel (only channels this viewer may see). */
+    suspend fun memberCounts(): Map<String, Long> =
+        runCatching { supabase.postgrest.rpc("channel_member_counts").decodeList<MemberCount>() }
+            .getOrDefault(emptyList()).associate { it.channelId to it.members }
+
+    /** Channels the signed-in user joined (empty for guests). */
+    suspend fun joinedChannelIds(): Set<String> {
+        if (!signedIn()) return emptySet()
+        return supabase.from("channel_members").select(Columns.list("channel_id"))
+            .decodeList<JsonObject>().mapNotNull { it["channel_id"]?.jsonPrimitive?.content }.toSet()
+    }
+
+    suspend fun joinChannel(channelId: String) {
+        supabase.from("channel_members").insert(buildJsonObject { put("channel_id", channelId) })
+    }
+
+    suspend fun leaveChannel(channelId: String) {
+        supabase.from("channel_members").delete { filter { eq("channel_id", channelId) } }
+    }
 }

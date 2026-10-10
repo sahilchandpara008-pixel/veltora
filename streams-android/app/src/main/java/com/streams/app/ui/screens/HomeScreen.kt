@@ -1,5 +1,6 @@
 package com.streams.app.ui.screens
 
+import com.streams.app.data.ChannelJoins
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -114,6 +115,7 @@ fun HomeScreen(nav: NavController) {
         }
     }
     var filter by remember { mutableStateOf("All") }
+    val joined by ChannelJoins.joined.collectAsStateWithLifecycle()
 
     PullToRefreshBox(
         isRefreshing = refreshing,
@@ -152,6 +154,11 @@ fun HomeScreen(nav: NavController) {
                     }
                     // Campaign content: the server only returns STREAMS_SPECIAL titles to accounts that
                     // came from a Meta ad, so for everyone else this list is empty and the row is hidden.
+                    // Newest videos from the channels this user joined.
+                    val fromJoined = all.filter { it.channelId != null && it.channelId in joined }.take(15)
+                    if (fromJoined.isNotEmpty()) item(key = "joined") {
+                        PosterRow("From channels you joined", fromJoined, nav, onMore = { nav.navigate("channels") { launchSingleTop = true } })
+                    }
                     val special = all.filter { it.isStreamsSpecial }
                     if (special.isNotEmpty()) item(key = "special") { PosterRow("Veltora Special", special, nav) }
                     val trending = all.sortedByDescending { it.viewCount }.take(10)

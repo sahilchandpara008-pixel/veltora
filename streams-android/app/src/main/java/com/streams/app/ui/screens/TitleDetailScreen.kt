@@ -89,7 +89,10 @@ fun canWatchFull(t: Title, hasSub: Boolean) = t.tier == Tier.FREE || hasSub
 /** For locked titles: trailer if one exists, otherwise a 30-second preview of the real video. */
 fun lockedMode(t: Title) = if (t.trailerPath != null) "trailer" else "preview"
 
-private data class DetailData(val title: Title, val episodes: List<Episode>, val channel: Channel?, val related: List<Title>)
+private data class DetailData(
+    val title: Title, val episodes: List<Episode>, val channel: Channel?,
+    val sameChannel: List<Title>, val related: List<Title>,
+)
 
 @Composable
 fun TitleDetailScreen(nav: NavController, titleId: String) {
@@ -107,10 +110,12 @@ fun TitleDetailScreen(nav: NavController, titleId: String) {
             val eps = async { if (t.isSeries) Repo.episodes(t.id) else emptyList() }
             val channels = async { runCatching { Repo.channels() }.getOrDefault(emptyList()) }
             val all = async { runCatching { Repo.titles() }.getOrDefault(emptyList()) }
-            val related = all.await().filter { it.id != t.id }
-                .sortedByDescending { (if (it.channelId == t.channelId && t.channelId != null) 1000 else 0) + it.viewCount }
-                .take(9)
-            DetailData(t, eps.await(), channels.await().firstOrNull { it.id == t.channelId }, related)
+            val others = all.await().filter { it.id != t.id }
+            // Everything else from the same channel (e.g. the creator's other uploads), then other picks.
+            val sameChannel = if (t.channelId == null) emptyList() else others.filter { it.channelId == t.channelId }
+            val related = others.filter { it.channelId != t.channelId || t.channelId == null }
+                .sortedByDescending { it.viewCount }.take(9)
+            DetailData(t, eps.await(), channels.await().firstOrNull { it.id == t.channelId }, sameChannel, related)
         }
     }
 
@@ -210,6 +215,14 @@ fun TitleDetailScreen(nav: NavController, titleId: String) {
                         EpisodeRow(ep, t, locked = !full) {
                             nav.navigate(Routes.player(t.id, if (full) "full" else lockedMode(t), ep.id))
                         }
+                    }
+                }
+                if (d.sameChannel.isNotEmpty()) {
+                    item {
+                        PosterRow(
+                            "More from ${d.channel?.name ?: "this channel"}", d.sameChannel, nav,
+                            onMore = t.channelId?.let { id -> { nav.navigate(Routes.channel(id)) } },
+                        )
                     }
                 }
                 if (d.related.isNotEmpty()) {

@@ -54,10 +54,22 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Google Play upload key. CI writes the keystore from the repo secrets
+        // (UPLOAD_KEYSTORE_BASE64 etc.); it's never stored in the repo.
+        val uploadKeystore = System.getenv("UPLOAD_KEYSTORE")
+        if (!uploadKeystore.isNullOrBlank()) {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = System.getenv("UPLOAD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

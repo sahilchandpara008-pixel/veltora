@@ -63,6 +63,40 @@ object Audience {
     }
 }
 
+/** Reasons for reporting a creator's channel or video (content_reports.reason). */
+object ReportReason {
+    val all = listOf(
+        "sexual" to "Sexual content",
+        "violent" to "Violence",
+        "hateful" to "Hate speech",
+        "harassment" to "Harassment or bullying",
+        "spam" to "Spam or misleading",
+        "copyright" to "Copyright",
+        "child_safety" to "Child safety",
+        "other" to "Other",
+    )
+
+    fun label(key: String) = all.firstOrNull { it.first == key }?.second ?: key
+}
+
+/** Row of admin_reports(). */
+@Serializable
+data class ReportRow(
+    val id: String,
+    @SerialName("target_type") val targetType: String,
+    @SerialName("target_id") val targetId: String,
+    @SerialName("target_name") val targetName: String? = null,
+    @SerialName("channel_name") val channelName: String? = null,
+    @SerialName("owner_email") val ownerEmail: String? = null,
+    val reason: String,
+    val details: String = "",
+    val status: String,
+    @SerialName("admin_note") val adminNote: String = "",
+    @SerialName("reporter_email") val reporterEmail: String? = null,
+    @SerialName("report_count") val reportCount: Long = 0,
+    @SerialName("created_at") val createdAt: String = "",
+)
+
 /** Row of admin_creator_channels(). */
 @Serializable
 data class CreatorChannelRow(

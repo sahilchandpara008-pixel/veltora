@@ -2,6 +2,7 @@ package com.streams.app.data
 
 import android.content.Context
 import android.net.Uri
+import io.github.jan.supabase.auth.SignOutScope
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -556,5 +557,39 @@ object Repo {
         supabase.postgrest.rpc("admin_review_title", buildJsonObject {
             put("p_id", id); put("p_status", status); put("p_audience", audience); put("p_note", note)
         })
+    }
+
+    // ---------------------------------------------------------------- Google Play requirements
+    /** Report a channel or video; only admins can read reports. */
+    suspend fun report(targetType: String, targetId: String, reason: String, details: String) {
+        supabase.from("content_reports").insert(buildJsonObject {
+            put("target_type", targetType); put("target_id", targetId)
+            put("reason", reason); put("details", details.trim())
+        })
+    }
+
+    suspend fun adminReports(status: String?): List<ReportRow> =
+        supabase.postgrest.rpc("admin_reports", buildJsonObject { put("p_status", status) }).decodeList()
+
+    suspend fun resolveReport(id: String, note: String) {
+        supabase.from("content_reports").update(buildJsonObject {
+            put("status", "resolved"); put("admin_note", note.trim())
+        }) { filter { eq("id", id) } }
+    }
+
+    /** Deletes the account and all its data (Edge Function "delete-account"), then signs out locally. */
+    suspend fun deleteAccount() {
+        runCatching { supabase.auth.refreshCurrentSession() }
+        val res = runCatching { supabase.functions.invoke("delete-account") }
+        val body = res.getOrNull()?.let { runCatching { Json.parseToJsonElement(it.bodyAsText()).jsonObject }.getOrNull() }
+        val ok = body?.get("deleted")?.jsonPrimitive?.content == "true"
+        if (!ok) {
+            val msg = body?.get("error")?.jsonPrimitive?.content
+                ?: res.exceptionOrNull()?.message?.let { m -> Regex("\"error\"\\s*:\\s*\"([^\"]+)\"").find(m)?.groupValues?.get(1) }
+                ?: "Couldn't delete the account. Please try again."
+            error(msg)
+        }
+        // The server session no longer exists; just forget it on this phone.
+        runCatching { supabase.auth.signOut(SignOutScope.LOCAL) }
     }
 }

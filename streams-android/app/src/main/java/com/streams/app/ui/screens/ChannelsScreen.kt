@@ -28,6 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Flag
+import com.streams.app.data.currentEmail
+import com.streams.app.ui.components.ReportDialog
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -184,7 +187,14 @@ fun ChannelDetailScreen(nav: NavController, channelId: String) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             ChannelAvatar(ch?.name ?: "Channel", ch?.avatarPath, 48)
                             Spacer(Modifier.width(12.dp))
-                            Text(ch?.name ?: "Channel", style = MaterialTheme.typography.headlineMedium)
+                            Text(ch?.name ?: "Channel", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                            if (ch != null) {
+                                var reporting by remember { mutableStateOf(false) }
+                                IconButton(onClick = { if (currentEmail() == null) nav.navigate("auth") else reporting = true }) {
+                                    Icon(Icons.Outlined.Flag, "Report channel")
+                                }
+                                if (reporting) ReportDialog("channel", ch.id, ch.name) { reporting = false }
+                            }
                         }
                         ch?.description?.takeIf { it.isNotBlank() }?.let {
                             Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))

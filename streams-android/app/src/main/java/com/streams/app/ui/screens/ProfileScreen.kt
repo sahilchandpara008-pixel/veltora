@@ -1,5 +1,12 @@
 package com.streams.app.ui.screens
 
+import com.streams.app.data.Links
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Policy
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -122,6 +129,7 @@ private data class ProfileData(
 @Composable
 fun ProfileScreen(nav: NavController) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val access by AppState.accessVersion.collectAsStateWithLifecycle()
     val load = rememberLoad(access) {
         coroutineScope {
@@ -139,6 +147,16 @@ fun ProfileScreen(nav: NavController) {
     var versionTaps by remember { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
     val scrollToPlans by AppState.scrollToPlans.collectAsStateWithLifecycle()
+    var deletingAccount by remember { mutableStateOf(false) }
+    if (deletingAccount) {
+        DeleteAccountDialog(onDismiss = { deletingAccount = false }) {
+            deletingAccount = false
+            scope.launch {
+                AppState.refreshAccess()
+                nav.navigate("home") { popUpTo(nav.graph.id) { inclusive = true } }
+            }
+        }
+    }
 
     when (val s = load.state) {
         Load.Loading -> Loading()
@@ -227,6 +245,17 @@ fun ProfileScreen(nav: NavController) {
                                 }
                             },
                         )
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MenuRow(Icons.Default.Policy, "Privacy policy", null) { openLink(context, Links.PRIVACY) }
+                        MenuRow(Icons.Default.Description, "Terms of use", null) { openLink(context, Links.TERMS) }
+                        if (d.email != null) {
+                            MenuRow(Icons.Default.DeleteForever, "Delete account", "Permanently delete your account and data") {
+                                deletingAccount = true
+                            }
+                        }
                     }
                 }
                 item {
@@ -728,4 +757,47 @@ private fun copy(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     cm.setPrimaryClip(ClipData.newPlainText("UPI ID", text))
     Toast.makeText(context, "UPI ID copied", Toast.LENGTH_SHORT).show()
+}
+
+private fun openLink(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
+
+/** Google Play requires in-app account deletion. Type DELETE to confirm. */
+@Composable
+private fun DeleteAccountDialog(onDismiss: () -> Unit, onDeleted: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Delete account?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Your account, your Cloud Storage files, your channels and videos and your history will be deleted permanently. This can't be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(confirm, { confirm = it }, label = { Text("Type DELETE to confirm") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && confirm.trim() == "DELETE", onClick = {
+                busy = true; error = null
+                scope.launch {
+                    runCatching { Repo.deleteAccount() }
+                        .onSuccess {
+                            Toast.makeText(context, "Your account and data were deleted.", Toast.LENGTH_LONG).show()
+                            onDeleted()
+                        }
+                        .onFailure { error = it.friendly(); busy = false }
+                }
+            }) { Text("Delete", color = Red) }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } },
+    )
 }

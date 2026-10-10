@@ -130,7 +130,7 @@ private fun NotFound(nav: NavController) {
 @Composable
 private fun AdminHome(nav: NavController, isOwner: Boolean) {
     val tabs = buildList {
-        add("Overview"); add("Attribution"); add("Payments"); add("Content"); add("Creators"); add("Channels"); add("Campaigns")
+        add("Overview"); add("Attribution"); add("Payments"); add("Content"); add("Creators"); add("Reports"); add("Channels"); add("Campaigns")
         if (isOwner) { add("Team"); add("Settings") }
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -160,6 +160,7 @@ private fun AdminHome(nav: NavController, isOwner: Boolean) {
                 "Payments" -> PaymentsTab()
                 "Content" -> ContentTab(nav)
                 "Creators" -> CreatorsTab(nav)
+                "Reports" -> ReportsTab(nav)
                 "Channels" -> ChannelsTab()
                 "Campaigns" -> CampaignsTab()
                 "Team" -> TeamTab()

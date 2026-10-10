@@ -2400,3 +2400,57 @@ grant execute on function public.admin_review_channel(uuid, text, text, text) to
 grant execute on function public.admin_review_title(uuid, text, text, text) to authenticated;
 grant execute on function public.admin_creator_channels(text) to authenticated;
 grant execute on function public.admin_creator_titles(text) to authenticated;
+
+-- =====================================================================
+-- 27. GOOGLE PLAY: REPORTING USER CONTENT. Signed-in users report a
+--     creator channel or video (Play's user-generated-content policy);
+--     the admin sees open reports and resolves them (and unpublishes the
+--     channel/video from Admin → Creators when needed). Account deletion
+--     is done by the "delete-account" Edge Function.
+-- =====================================================================
+create table if not exists public.content_reports (
+  id          uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  target_type text not null check (target_type in ('channel', 'title')),
+  target_id   uuid not null,
+  reason      text not null check (reason in ('sexual', 'violent', 'hateful', 'harassment', 'spam', 'copyright', 'child_safety', 'other')),
+  details     text not null default '' check (length(details) <= 1000),
+  status      text not null default 'open' check (status in ('open', 'resolved')),
+  admin_note  text not null default '',
+  created_at  timestamptz not null default now()
+);
+alter table public.content_reports enable row level security;
+create index if not exists content_reports_status_idx on public.content_reports (status, created_at desc);
+create policy "users file reports" on public.content_reports for insert to authenticated
+  with check (reporter_id = auth.uid() and status = 'open' and admin_note = '');
+create policy "admins read reports" on public.content_reports for select using (public.is_admin());
+create policy "admins resolve reports" on public.content_reports for update using (public.is_admin()) with check (public.is_admin());
+
+-- Open/closed reports with the reporter's email and what was reported.
+create or replace function public.admin_reports(p_status text default 'open')
+returns table (id uuid, target_type text, target_id uuid, target_name text, channel_name text,
+               owner_email text, reason text, details text, status text, admin_note text,
+               reporter_email text, report_count bigint, created_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admins only'; end if;
+  return query
+    select r.id, r.target_type, r.target_id,
+           coalesce(t.name, c.name, '(deleted)'),
+           coalesce(tc.name, c.name),
+           coalesce(tu.email, cu.email)::text,
+           r.reason, r.details, r.status, r.admin_note, ru.email::text,
+           (select count(*) from public.content_reports x where x.target_id = r.target_id and x.status = 'open'),
+           r.created_at
+      from public.content_reports r
+      left join auth.users ru on ru.id = r.reporter_id
+      left join public.titles t on r.target_type = 'title' and t.id = r.target_id
+      left join public.channels tc on tc.id = t.channel_id
+      left join auth.users tu on tu.id = t.uploaded_by
+      left join public.channels c on r.target_type = 'channel' and c.id = r.target_id
+      left join auth.users cu on cu.id = c.owner_id
+     where p_status is null or r.status = p_status
+     order by r.created_at desc;
+end $$;
+revoke execute on function public.admin_reports(text) from public, anon;
+grant execute on function public.admin_reports(text) to authenticated;

@@ -62,3 +62,30 @@ jobs:
             gh release create veltora-latest --title "Veltora" --notes "Latest Veltora app for Android." --latest
           gh release edit veltora-latest --title "Veltora v1.1.${{ github.run_number }}"
           gh release upload veltora-latest Veltora.apk Veltora-ads.apk --clobber
+
+      # Google Play: signed release bundle (.aab), built only when the upload key secrets exist
+      # (UPLOAD_KEYSTORE_BASE64, UPLOAD_KEYSTORE_PASSWORD, UPLOAD_KEY_ALIAS, UPLOAD_KEY_PASSWORD).
+      # Download it from this run's artifacts and upload it in Play Console.
+      - name: Build signed release bundle for Google Play
+        id: aab
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: |
+          if [ -z "$UPLOAD_KEYSTORE_BASE64" ]; then
+            echo "No upload key secrets yet - skipping the Play Store bundle."
+            exit 0
+          fi
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease --stacktrace
+          rm -f "$RUNNER_TEMP/upload.jks"
+          cp app/build/outputs/bundle/release/app-release.aab "Veltora-v1.1.${{ github.run_number }}.aab"
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.aab.outputs.built == 'true'
+        with:
+          name: Veltora-PlayStore-v1.1.${{ github.run_number }}
+          path: streams-android/Veltora-v1.1.${{ github.run_number }}.aab

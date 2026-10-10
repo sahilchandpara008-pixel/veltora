@@ -1,6 +1,10 @@
 package com.streams.app.ui.screens
 
 import android.content.Context
+import com.streams.app.data.Links
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.clickable
+import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -284,6 +288,7 @@ private fun ChannelDialog(existing: Channel?, onDismiss: () -> Unit, onSaved: ()
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var photo by remember { mutableStateOf<Uri?>(null) }
+    var agreed by remember { mutableStateOf(existing != null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { photo = it ?: photo }
@@ -302,13 +307,16 @@ private fun ChannelDialog(existing: Channel?, onDismiss: () -> Unit, onSaved: ()
                 }
                 OutlinedTextField(name, { name = it.take(60) }, label = { Text("Channel name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(description, { description = it.take(1000) }, label = { Text("About this channel") }, minLines = 2, maxLines = 5, modifier = Modifier.fillMaxWidth())
-                if (existing == null) Text("Our team reviews new channels before they're shown in the app.", style = MaterialTheme.typography.bodySmall)
+                if (existing == null) {
+                    Text("Our team reviews new channels before they're shown in the app.", style = MaterialTheme.typography.bodySmall)
+                    TermsCheck(agreed) { agreed = it }
+                }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && name.trim().length >= 2, onClick = {
+            TextButton(enabled = !busy && agreed && name.trim().length >= 2, onClick = {
                 busy = true; error = null
                 scope.launch {
                     runCatching {
@@ -335,6 +343,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var cover by remember { mutableStateOf<Uri?>(null) }
     var video by remember { mutableStateOf<Uri?>(null) }
+    var agreed by remember { mutableStateOf(existing != null) }
     var busy by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -377,6 +386,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                     }
                 }
                 Text("Max 50 MB. New videos and replaced videos are reviewed before they go live.", style = MaterialTheme.typography.bodySmall)
+                if (existing == null) TermsCheck(agreed) { agreed = it }
                 if (busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text(step, style = MaterialTheme.typography.bodySmall)
@@ -385,7 +395,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && name.isNotBlank() && (video != null || existing?.videoPath != null), onClick = {
+            TextButton(enabled = !busy && agreed && name.isNotBlank() && (video != null || existing?.videoPath != null), onClick = {
                 busy = true; error = null
                 scope.launch {
                     runCatching {
@@ -413,6 +423,24 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
         },
         dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** Creators accept the Terms of Use (creator rules) before requesting a channel or uploading. */
+@Composable
+private fun TermsCheck(checked: Boolean, onChange: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = onChange)
+        Column {
+            Text("I agree to the Terms of Use and Creator rules", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Read the rules", color = Red, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.clickable {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Links.TERMS))) }
+                },
+            )
+        }
+    }
 }
 
 @Composable

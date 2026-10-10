@@ -27,6 +27,9 @@ import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.outlined.Flag
+import com.streams.app.data.currentEmail
+import com.streams.app.ui.components.ReportDialog
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -255,6 +258,13 @@ private fun Header(t: Title, nav: NavController) {
             colors = IconButtonDefaults.iconButtonColors(containerColor = Bg.copy(alpha = 0.55f)),
             modifier = Modifier.statusBarsPadding().padding(8.dp),
         ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White) }
+        var reporting by remember { mutableStateOf(false) }
+        IconButton(
+            onClick = { if (currentEmail() == null) nav.navigate("auth") else reporting = true },
+            colors = IconButtonDefaults.iconButtonColors(containerColor = Bg.copy(alpha = 0.55f)),
+            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp),
+        ) { Icon(Icons.Outlined.Flag, "Report", tint = Color.White) }
+        if (reporting) ReportDialog("title", t.id, t.name) { reporting = false }
     }
 }
 

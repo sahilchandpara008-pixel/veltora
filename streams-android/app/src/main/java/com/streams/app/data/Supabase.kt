@@ -17,6 +17,9 @@ object Links {
     const val LOGIN = "$SCHEME://$HOST"
     const val ADMIN_SET_PASSWORD = "$SCHEME://$HOST/admin-reset"
     const val SET_PASSWORD = "$SCHEME://$HOST/set-password"
+    const val WEB = "https://veltora-app.lovable.app"
+    const val PRIVACY = "$WEB/privacy"
+    const val TERMS = "$WEB/terms"
 }
 
 val supabase by lazy {

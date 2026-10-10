@@ -3183,3 +3183,87 @@ begin
 end $$;
 revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
 grant execute on function public.ingest_bank_sms(text, text, text) to service_role;
+
+-- =====================================================================
+-- 33. Bank SMS amounts without a currency word ("credited by 149.00").
+-- =====================================================================
+create or replace function public.ingest_bank_sms(p_key text, p_sender text, p_text text)
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  s      public.bank_sms_settings;
+  t      text := left(coalesce(p_text, ''), 1000);
+  lt     text;
+  snd    text := left(btrim(coalesce(p_sender, '')), 80);
+  m      text[];
+  amt    numeric(10,2);
+  v_ref  text;
+  c      public.bank_credits;
+  pay    public.payments;
+  target uuid;
+  open_n int;
+  res    text;
+begin
+  select * into s from public.bank_sms_settings where id = 1;
+  if s.key_hash is null or coalesce(p_key, '') = ''
+     or encode(sha256(convert_to(p_key, 'UTF8')), 'hex') <> s.key_hash then
+    return json_build_object('ok', false, 'error', 'bad key');
+  end if;
+  lt := lower(t);
+  if not s.enabled then res := 'ignored: auto-verify is off';
+  elsif coalesce(btrim(s.sender_filter), '') = '' then res := 'ignored: bank sender name not set';
+  elsif position(upper(btrim(s.sender_filter)) in upper(snd)) = 0 then res := 'ignored: sender does not match';
+  elsif snd ~ '^\+?[0-9 ()-]+$' then res := 'ignored: sent from a phone number';
+  elsif lt ~ '\mdebit' then res := 'ignored: debit message';
+  elsif lt !~ '(credited|\mcr\M|received|deposited)' then res := 'ignored: not a credit message';
+  else
+    -- "Rs 149", "INR 149.00", "₹149" or "credited by 149.00" (no currency word, as SBI writes it)
+    m := regexp_match(t, '(?:(?:rs\.?|inr|₹)\s*|(?:credited|debited|cr\.?|dr\.?)\s+(?:by|with|for)\s+(?:rs\.?\s*|inr\s*|₹\s*)?)([0-9][0-9,]*(?:\.[0-9]{1,2})?)', 'i');
+    amt := case when m is null then null else nullif(replace(m[1], ',', ''), '')::numeric end;
+    if amt is null or amt <= 0 then
+      res := 'ignored: amount not found';
+    else
+      m := regexp_match(t, '(?:upi\s*ref(?:erence)?|ref(?:erence)?|rrn|utr|txn)[^0-9]{0,15}([0-9]{12})', 'i');
+      if m is null then m := regexp_match(t, '\m([0-9]{12})\M'); end if;
+      v_ref := m[1];
+      select * into c from public.bank_credits
+       where (v_ref is not null and ref = v_ref)
+          or (v_ref is null and amount = amt and received_at > now() - interval '3 minutes')
+       limit 1;
+      if found then
+        res := 'duplicate';
+      else
+        select count(*) into open_n from public.payments
+         where amount = amt and created_at > now() - interval '30 minutes'
+           and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null));
+        insert into public.bank_credits (amount, ref, source, raw, reported_by, ambiguous)
+        values (amt, v_ref, left('sms:' || snd, 80), left(t, 500), 'sms-forwarder', open_n > 1)
+        returning * into c;
+        target := public.find_order_for_credit(amt, v_ref, now());
+        if target is not null then
+          pay := public.settle_bank_credit(c.id, target);
+          res := case when pay.status = 'approved' then 'activated' else 'matched: waiting for admin approval' end;
+        elsif open_n > 1 then
+          res := 'several orders of this amount: waiting for the customer''s UTR';
+        else
+          update public.payments set bank_credit_id = c.id, updated_at = now()
+           where id = (select id from public.payments
+                        where status = 'approved' and bank_credit_id is null and amount = amt
+                          and (v_ref is null or upper(coalesce(txn_id, '')) = v_ref)
+                          and created_at > now() - interval '24 hours'
+                        order by created_at desc limit 1)
+          returning * into pay;
+          if pay.id is not null then
+            update public.bank_credits set payment_id = pay.id where id = c.id;
+            res := 'proof added to an active order';
+          else
+            res := 'no matching order';
+          end if;
+        end if;
+      end if;
+    end if;
+  end if;
+  insert into public.bank_sms_log (sender, result, amount, ref, payment_id) values (snd, res, amt, v_ref, pay.id);
+  return json_build_object('ok', true, 'result', res, 'amount', amt, 'ref', v_ref, 'payment_id', pay.id);
+end $$;
+revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
+grant execute on function public.ingest_bank_sms(text, text, text) to service_role;

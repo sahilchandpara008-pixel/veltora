@@ -79,13 +79,17 @@ jobs:
             exit 0
           fi
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease --stacktrace
+          # Same release build as an APK, to install on a phone and test before uploading the .aab.
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease assembleRelease --stacktrace
           rm -f "$RUNNER_TEMP/upload.jks"
           cp app/build/outputs/bundle/release/app-release.aab "Veltora-v1.1.${{ github.run_number }}.aab"
+          cp app/build/outputs/apk/release/app-release.apk "Veltora-release-test-v1.1.${{ github.run_number }}.apk"
           echo "built=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         if: steps.aab.outputs.built == 'true'
         with:
           name: Veltora-PlayStore-v1.1.${{ github.run_number }}
-          path: streams-android/Veltora-v1.1.${{ github.run_number }}.aab
+          path: |
+            streams-android/Veltora-v1.1.${{ github.run_number }}.aab
+            streams-android/Veltora-release-test-v1.1.${{ github.run_number }}.apk

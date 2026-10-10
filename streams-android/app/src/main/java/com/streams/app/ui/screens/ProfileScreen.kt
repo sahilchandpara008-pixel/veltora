@@ -640,8 +640,8 @@ private fun WaitingForPaymentCard(
                 Text(order.planName ?: "", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
             }
             Text(
-                "Pay exactly ${formatPrice(order.amount)} — don't change the amount. Your plan starts as soon as " +
-                    "the payment reaches us (usually within a minute). After paying, just come back to Veltora.",
+                "Complete the payment in your UPI app and come back to Veltora. Your plan starts as soon as the " +
+                    "payment reaches us. Not active after a few minutes? Tap \"Enter UTR\" and type the 12-digit UTR from your UPI app.",
                 style = MaterialTheme.typography.bodySmall,
             )
             if (order.clientStatus == null) PrimaryButton(if (noAnswer) "Try paying again" else "Open UPI app", onPayAgain)

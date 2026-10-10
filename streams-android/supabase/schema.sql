@@ -3000,3 +3000,186 @@ begin
 end $$;
 revoke execute on function public.admin_new_bank_sms_key() from public, anon;
 grant execute on function public.admin_new_bank_sms_key() to authenticated;
+
+-- =====================================================================
+-- 32. EXACT PLAN PRICE (owner's decision: no extra paise).
+--     A bank credit is matched to an order by:
+--       1. its UPI reference number (the UTR the customer typed, or the UPI app's
+--          transaction ID), else
+--       2. its amount, but only when exactly one open order has that amount in the
+--          last 30 minutes. With several, the credit waits until a customer enters
+--          the UTR from their UPI app, which then matches it automatically.
+-- =====================================================================
+create or replace function public.start_upi_payment(p_plan_id uuid)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare r public.payments;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first'; end if;
+  if not exists (select 1 from public.subscription_plans where id = p_plan_id and active) then
+    raise exception 'This plan is not available';
+  end if;
+  select * into r from public.payments
+   where user_id = auth.uid() and status = 'initiated' and plan_id = p_plan_id
+     and created_at > now() - interval '24 hours'
+     and amount = (select price from public.subscription_plans where id = p_plan_id)
+   order by created_at desc limit 1;
+  if found then return r; end if;
+  update public.payments set status = 'cancelled', updated_at = now(), reviewed_at = now(), reviewed_by = 'replaced by a new order'
+   where user_id = auth.uid() and status = 'initiated';
+  insert into public.payments (plan_id, reference, status)
+  values (p_plan_id,
+          'UPI' || to_char(now() at time zone 'Asia/Kolkata', 'YYYYMMDD')
+                || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)),
+          'initiated')
+  returning * into r;   -- amount = exact plan price (payments_before_insert)
+  return r;
+end $$;
+
+-- Open order that a credit of this amount / reference belongs to (null if unclear).
+create or replace function public.find_order_for_credit(p_amount numeric, p_ref text, p_at timestamptz)
+returns uuid language plpgsql stable security definer set search_path = public as $$
+declare target uuid; n int;
+begin
+  if p_ref is not null then
+    select id into target from public.payments
+     where amount = p_amount and (upper(coalesce(txn_id, '')) = p_ref or upper(reference) = p_ref)
+       and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null))
+       and created_at > p_at - interval '48 hours'
+     order by created_at desc limit 1;
+    if target is not null then return target; end if;
+  end if;
+  select count(*), min(id::text)::uuid into n, target from public.payments
+   where amount = p_amount
+     and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null))
+     and created_at between p_at - interval '30 minutes' and p_at + interval '2 minutes';
+  return case when n = 1 then target end;
+end $$;
+revoke execute on function public.find_order_for_credit(numeric, text, timestamptz) from public, anon, authenticated;
+
+create or replace function public.try_verify_payment(p_payment_id uuid)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare pay public.payments; c public.bank_credits;
+begin
+  select * into pay from public.payments where id = p_payment_id;
+  if not found then return pay; end if;
+  if not (pay.status in ('initiated', 'failed', 'cancelled') or (pay.status = 'pending' and pay.bank_credit_id is null)) then
+    return pay;
+  end if;
+  for c in select * from public.bank_credits
+            where payment_id is null and amount = pay.amount
+              and received_at >= pay.created_at - interval '2 minutes'
+              and received_at <= pay.created_at + interval '48 hours'
+            order by received_at loop
+    if public.find_order_for_credit(c.amount, c.ref, c.received_at) = pay.id then
+      return public.settle_bank_credit(c.id, pay.id);
+    end if;
+  end loop;
+  return pay;
+end $$;
+revoke execute on function public.try_verify_payment(uuid) from public, anon, authenticated;
+
+-- "Paid already? Enter UTR": if the bank SMS with that UTR already arrived, it matches at once.
+create or replace function public.submit_payment(p_plan_id uuid, p_reference text)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare
+  r   public.payments;
+  v_ref text := upper(regexp_replace(coalesce(p_reference, ''), '\s', '', 'g'));
+  c   public.bank_credits;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first'; end if;
+  if exists (select 1 from public.payments where user_id = auth.uid() and status = 'pending') then
+    raise exception 'You already have a payment waiting for verification';
+  end if;
+  if exists (select 1 from public.payments where reference = v_ref or upper(txn_id) = v_ref) then
+    raise exception 'This reference number has already been submitted';
+  end if;
+  insert into public.payments (plan_id, reference) values (p_plan_id, p_reference) returning * into r;
+  -- the customer's open UPI order for this plan is now covered by this one
+  update public.payments set status = 'cancelled', updated_at = now(), reviewed_at = now(), reviewed_by = 'replaced by UTR entry'
+   where user_id = auth.uid() and status = 'initiated';
+  select * into c from public.bank_credits where payment_id is null and bank_credits.ref = r.reference and amount = r.amount limit 1;
+  if found then r := public.settle_bank_credit(c.id, r.id); end if;
+  return r;
+end $$;
+revoke execute on function public.submit_payment(uuid, text) from public, anon;
+grant execute on function public.submit_payment(uuid, text) to authenticated;
+
+create or replace function public.ingest_bank_sms(p_key text, p_sender text, p_text text)
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  s      public.bank_sms_settings;
+  t      text := left(coalesce(p_text, ''), 1000);
+  lt     text;
+  snd    text := left(btrim(coalesce(p_sender, '')), 80);
+  m      text[];
+  amt    numeric(10,2);
+  v_ref  text;
+  c      public.bank_credits;
+  pay    public.payments;
+  target uuid;
+  open_n int;
+  res    text;
+begin
+  select * into s from public.bank_sms_settings where id = 1;
+  if s.key_hash is null or coalesce(p_key, '') = ''
+     or encode(sha256(convert_to(p_key, 'UTF8')), 'hex') <> s.key_hash then
+    return json_build_object('ok', false, 'error', 'bad key');
+  end if;
+  lt := lower(t);
+  if not s.enabled then res := 'ignored: auto-verify is off';
+  elsif coalesce(btrim(s.sender_filter), '') = '' then res := 'ignored: bank sender name not set';
+  elsif position(upper(btrim(s.sender_filter)) in upper(snd)) = 0 then res := 'ignored: sender does not match';
+  elsif snd ~ '^\+?[0-9 ()-]+$' then res := 'ignored: sent from a phone number';
+  elsif lt ~ '\mdebit' then res := 'ignored: debit message';
+  elsif lt !~ '(credited|\mcr\M|received|deposited)' then res := 'ignored: not a credit message';
+  else
+    m := regexp_match(t, '(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)', 'i');
+    amt := case when m is null then null else nullif(replace(m[1], ',', ''), '')::numeric end;
+    if amt is null or amt <= 0 then
+      res := 'ignored: amount not found';
+    else
+      m := regexp_match(t, '(?:upi\s*ref(?:erence)?|ref(?:erence)?|rrn|utr|txn)[^0-9]{0,15}([0-9]{12})', 'i');
+      if m is null then m := regexp_match(t, '\m([0-9]{12})\M'); end if;
+      v_ref := m[1];
+      select * into c from public.bank_credits
+       where (v_ref is not null and ref = v_ref)
+          or (v_ref is null and amount = amt and received_at > now() - interval '3 minutes')
+       limit 1;
+      if found then
+        res := 'duplicate';
+      else
+        select count(*) into open_n from public.payments
+         where amount = amt and created_at > now() - interval '30 minutes'
+           and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null));
+        insert into public.bank_credits (amount, ref, source, raw, reported_by, ambiguous)
+        values (amt, v_ref, left('sms:' || snd, 80), left(t, 500), 'sms-forwarder', open_n > 1)
+        returning * into c;
+        target := public.find_order_for_credit(amt, v_ref, now());
+        if target is not null then
+          pay := public.settle_bank_credit(c.id, target);
+          res := case when pay.status = 'approved' then 'activated' else 'matched: waiting for admin approval' end;
+        elsif open_n > 1 then
+          res := 'several orders of this amount: waiting for the customer''s UTR';
+        else
+          update public.payments set bank_credit_id = c.id, updated_at = now()
+           where id = (select id from public.payments
+                        where status = 'approved' and bank_credit_id is null and amount = amt
+                          and (v_ref is null or upper(coalesce(txn_id, '')) = v_ref)
+                          and created_at > now() - interval '24 hours'
+                        order by created_at desc limit 1)
+          returning * into pay;
+          if pay.id is not null then
+            update public.bank_credits set payment_id = pay.id where id = c.id;
+            res := 'proof added to an active order';
+          else
+            res := 'no matching order';
+          end if;
+        end if;
+      end if;
+    end if;
+  end if;
+  insert into public.bank_sms_log (sender, result, amount, ref, payment_id) values (snd, res, amt, v_ref, pay.id);
+  return json_build_object('ok', true, 'result', res, 'amount', amt, 'ref', v_ref, 'payment_id', pay.id);
+end $$;
+revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
+grant execute on function public.ingest_bank_sms(text, text, text) to service_role;

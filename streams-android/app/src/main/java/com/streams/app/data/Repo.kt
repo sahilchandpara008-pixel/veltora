@@ -450,11 +450,14 @@ object Repo {
      * No thumbnail picked: grabs a frame from the video (a little way in, so it isn't a black
      * intro frame), saves it as a 16:9-friendly JPEG and uploads it. Null if no frame could be read.
      */
-    suspend fun uploadVideoFrame(context: Context, video: Uri, folder: String): String? = withContext(Dispatchers.IO) {
+    suspend fun uploadVideoFrame(context: Context, video: Uri?, folder: String, storedVideoPath: String? = null): String? = withContext(Dispatchers.IO) {
+        // A picked file, or else the video already saved (lets "Edit → Save" add a thumbnail to old uploads).
+        val remote = if (video == null && storedVideoPath != null) runCatching { streamUrl(storedVideoPath) }.getOrNull() else null
+        if (video == null && remote == null) return@withContext null
         val frame = runCatching {
             val r = android.media.MediaMetadataRetriever()
             try {
-                r.setDataSource(context, video)
+                if (video != null) r.setDataSource(context, video) else r.setDataSource(remote, emptyMap())
                 val ms = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                 val at = if (ms > 0) minOf(ms / 10, 10_000L) else 1_000L
                 r.getFrameAtTime(at * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)

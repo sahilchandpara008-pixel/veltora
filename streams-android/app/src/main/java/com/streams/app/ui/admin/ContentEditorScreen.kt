@@ -241,7 +241,10 @@ fun ContentEditorScreen(nav: NavController, titleId: String?) {
                     try {
                         val coverPath = cover?.let { busy = "Uploading thumbnail…"; Repo.uploadFile(context, it, "images", "covers") }
                             // No thumbnail chosen (and none saved yet): take one from the video automatically.
-                            ?: if (existing?.coverPath == null) (video ?: trailer)?.let { busy = "Creating thumbnail…"; Repo.uploadVideoFrame(context, it, "covers") } else null
+                            ?: if (existing?.coverPath == null) {
+                                busy = "Creating thumbnail…"
+                                Repo.uploadVideoFrame(context, video ?: trailer, "covers", existing?.videoPath ?: existing?.trailerPath)
+                            } else null
                         val trailerPath = trailer?.let { busy = "Uploading trailer…"; Repo.uploadFile(context, it, "videos", "trailers") }
                         val videoPath = video?.let { busy = "Uploading video… (large files take a while)"; Repo.uploadFile(context, it, "videos", "videos") }
                         val duration = video?.let { durationSeconds(context, it) }

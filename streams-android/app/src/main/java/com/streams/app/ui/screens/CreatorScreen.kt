@@ -441,7 +441,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                 val coverPath = cover?.let { next("thumbnail"); Repo.uploadFile(context, it, "images", folder) }
                     ?: existing?.coverPath
                     // No thumbnail chosen: take one from the video automatically.
-                    ?: (video ?: trailer)?.let { step = "Creating thumbnail…"; Repo.uploadVideoFrame(context, it, folder) }
+                    ?: run { step = "Creating thumbnail…"; Repo.uploadVideoFrame(context, video ?: trailer, folder, existing?.videoPath ?: existing?.trailerPath) }
                 step = "Publishing…"
                 Repo.creatorSaveTitle(existing?.id, channel.id, name, description, coverPath, videoPath, trailerPath, duration)
                 // Remove files this edit replaced.

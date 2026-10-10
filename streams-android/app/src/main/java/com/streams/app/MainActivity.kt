@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.streams.app.data.DebitSms
 import com.streams.app.data.UpiPay
 import com.streams.app.data.supabase
 import com.streams.app.ui.AppNav
@@ -24,10 +25,17 @@ class MainActivity : ComponentActivity() {
             UpiPay.onResult(r.resultCode, r.data)
         }
 
+    // Google's "share this one SMS" screen for the bank's debit SMS after paying.
+    private val smsConsentLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+            DebitSms.onConsentResult(r.resultCode == RESULT_OK, r.data)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         UpiPay.launcher = upiLauncher
+        DebitSms.launcher = smsConsentLauncher
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -36,8 +44,19 @@ class MainActivity : ComponentActivity() {
         setContent { StreamsTheme { AppNav() } }
     }
 
+    override fun onResume() {
+        super.onResume()
+        DebitSms.resumed = true
+    }
+
+    override fun onPause() {
+        DebitSms.resumed = false
+        super.onPause()
+    }
+
     override fun onDestroy() {
         if (UpiPay.launcher === upiLauncher) UpiPay.launcher = null
+        if (DebitSms.launcher === smsConsentLauncher) DebitSms.launcher = null
         super.onDestroy()
     }
 

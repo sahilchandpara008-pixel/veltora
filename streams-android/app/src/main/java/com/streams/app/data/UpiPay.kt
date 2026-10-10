@@ -44,7 +44,9 @@ object UpiPay {
     fun pay(intent: Intent, orderId: String): Boolean {
         val l = launcher ?: return false
         prefs.edit().putString(KEY_ORDER, orderId).remove(KEY_RESPONSE).apply()
-        return runCatching { l.launch(intent) }.isSuccess
+        val opened = runCatching { l.launch(intent) }.isSuccess
+        if (opened) DebitSms.start(orderId)
+        return opened
     }
 
     /** Called by MainActivity with whatever the UPI app returned. */

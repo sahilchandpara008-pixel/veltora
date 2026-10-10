@@ -248,6 +248,13 @@ object Repo {
      * verification (bank credit seen on the owner's phone; later the bank's status API) and
      * returns the order — the app never decides that a payment succeeded.
      */
+    /** The bank's debit SMS the customer agreed to share; the server checks payee, amount and Refno. */
+    suspend fun reportDebitSms(paymentId: String, text: String): Payment =
+        supabase.postgrest.rpc("report_debit_sms", buildJsonObject {
+            put("p_payment_id", paymentId)
+            put("p_text", text)
+        }).decodeAs()
+
     suspend fun checkPaymentStatus(paymentId: String): Payment =
         supabase.postgrest.rpc("check_payment_status", buildJsonObject { put("p_payment_id", paymentId) }).decodeAs()
 

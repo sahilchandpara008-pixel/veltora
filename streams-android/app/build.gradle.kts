@@ -104,6 +104,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
     implementation("com.android.installreferrer:installreferrer:2.2") // Google Play Install Referrer (ad attribution)
     implementation("com.facebook.android:facebook-core:18.2.3")         // Meta app events (IDs set in Admin → Settings)
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.1.0") // one-tap consent to read the bank debit SMS
 
     // Supabase (auth, database, file storage)
     implementation(platform("io.github.jan-tennert.supabase:bom:3.2.6"))

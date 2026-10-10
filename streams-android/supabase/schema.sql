@@ -3267,3 +3267,202 @@ begin
 end $$;
 revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
 grant execute on function public.ingest_bank_sms(text, text, text) to service_role;
+
+-- =====================================================================
+-- 34. CUSTOMER DEBIT SMS (owner's decision)
+--     After paying, the Veltora app asks the customer (Google SMS User Consent:
+--     one message, one tap) to read the bank's debit SMS, e.g.
+--     "A/C X3526 debited by 1.00 ... trf to AS ENTERPRISE Refno 628351826253".
+--     The server checks: a debit message, my payee name, the exact order amount,
+--     and a 12-digit Refno never used before.
+--       ads (Meta) account  -> plan starts at once (like the UPI app's SUCCESS)
+--       organic account     -> Needs approval
+--     The owner's own credit SMS with the same Refno, when it arrives, is attached
+--     as bank proof (or activates directly if it came first).
+-- =====================================================================
+alter table public.bank_sms_settings add column if not exists payee_match text;
+update public.bank_sms_settings set payee_match = coalesce(payee_match, 'AS ENTERPRISE') where id = 1;
+
+create or replace function public.report_debit_sms(p_payment_id uuid, p_text text)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare
+  pay   public.payments;
+  t     text := left(coalesce(p_text, ''), 1000);
+  lt    text := lower(left(coalesce(p_text, ''), 1000));
+  payee text;
+  m     text[];
+  amt   numeric(10,2);
+  v_ref text;
+  c     public.bank_credits;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first'; end if;
+  select * into pay from public.payments where id = p_payment_id and user_id = auth.uid() for update;
+  if not found then raise exception 'Order not found'; end if;
+  if pay.status not in ('initiated', 'failed', 'cancelled') or pay.created_at < now() - interval '2 hours' then
+    return pay;
+  end if;
+  select payee_match into payee from public.bank_sms_settings where id = 1;
+  if lt !~ '\mdebit' then return pay; end if;
+  if coalesce(btrim(payee), '') = '' or position(lower(btrim(payee)) in lt) = 0 then return pay; end if;
+  m := regexp_match(t, '(?:(?:rs\.?|inr|₹)\s*|(?:credited|debited|cr\.?|dr\.?)\s+(?:by|with|for)\s+(?:rs\.?\s*|inr\s*|₹\s*)?)([0-9][0-9,]*(?:\.[0-9]{1,2})?)', 'i');
+  amt := case when m is null then null else nullif(replace(m[1], ',', ''), '')::numeric end;
+  if amt is distinct from pay.amount then return pay; end if;
+  m := regexp_match(t, '(?:upi\s*ref(?:erence)?|ref(?:erence)?|rrn|utr|txn)[^0-9]{0,15}([0-9]{12})', 'i');
+  if m is null then m := regexp_match(t, '\m([0-9]{12})\M'); end if;
+  v_ref := m[1];
+  if v_ref is null then return pay; end if;
+  if exists (select 1 from public.payments
+              where id <> pay.id and (upper(coalesce(txn_id, '')) = v_ref or upper(reference) = v_ref)) then
+    return pay;
+  end if;
+  update public.payments
+     set client_status = 'success', upi_response = left('debit sms: ' || t, 2000), txn_id = v_ref, updated_at = now()
+   where id = pay.id
+  returning * into pay;
+  -- the owner's credit SMS with this Refno already arrived: that is bank proof
+  select * into c from public.bank_credits where payment_id is null and bank_credits.ref = v_ref and amount = pay.amount limit 1;
+  if found then return public.settle_bank_credit(c.id, pay.id); end if;
+  if public.user_is_meta(pay.user_id) then
+    pay := public.apply_verified_payment(pay.id, pay.amount, v_ref, null, 'upi_app', null);
+    update public.payments set reviewed_by = 'auto (customer debit SMS)' where id = pay.id returning * into pay;
+    return pay;
+  end if;
+  update public.payments
+     set status = 'pending', reviewed_by = 'Customer debit SMS - waiting for admin approval', updated_at = now()
+   where id = pay.id
+  returning * into pay;
+  return pay;
+end $$;
+revoke execute on function public.report_debit_sms(uuid, text) from public, anon;
+grant execute on function public.report_debit_sms(uuid, text) to authenticated;
+
+create or replace function public.admin_bank_sms_status()
+returns json language plpgsql stable security definer set search_path = public as $$
+declare s public.bank_sms_settings;
+begin
+  if not public.is_admin() then raise exception 'Not allowed'; end if;
+  select * into s from public.bank_sms_settings where id = 1;
+  return json_build_object('enabled', coalesce(s.enabled, false), 'sender_filter', s.sender_filter,
+                           'has_key', s.key_hash is not null, 'updated_at', s.updated_at,
+                           'payee_match', s.payee_match);
+end $$;
+
+-- The receiver name the customer's bank prints on the debit SMS ("trf to AS ENTERPRISE").
+create or replace function public.admin_set_payee_match(p_name text)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_owner() is distinct from true then raise exception 'Only the owner can change this'; end if;
+  update public.bank_sms_settings set payee_match = nullif(btrim(coalesce(p_name, '')), ''), updated_at = now() where id = 1;
+  return public.admin_bank_sms_status();
+end $$;
+revoke execute on function public.admin_set_payee_match(text) from public, anon;
+grant execute on function public.admin_set_payee_match(text) to authenticated;
+-- Credits never jump to another customer's order: a reference already on an order decides,
+-- and orders that carry a different reference are skipped by the amount fallback.
+create or replace function public.find_order_for_credit(p_amount numeric, p_ref text, p_at timestamptz)
+returns uuid language plpgsql stable security definer set search_path = public as $$
+declare target uuid; n int; st text; has_credit boolean;
+begin
+  if p_ref is not null then
+    -- an order already carrying this reference owns the credit (or nobody does, if it's closed)
+    select id, status, bank_credit_id is not null into target, st, has_credit from public.payments
+     where upper(coalesce(txn_id, '')) = p_ref or upper(reference) = p_ref
+     order by created_at desc limit 1;
+    if target is not null then
+      return case when (st in ('initiated', 'failed', 'cancelled') or (st = 'pending' and not has_credit))
+                   and (select amount from public.payments where id = target) = p_amount then target end;
+    end if;
+  end if;
+  -- otherwise by amount, only when exactly one open order fits; orders that already carry a
+  -- different reference (from the UPI app or a debit SMS) are not candidates
+  select count(*), min(id::text)::uuid into n, target from public.payments
+   where amount = p_amount
+     and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null))
+     and (p_ref is null or txn_id is null or upper(txn_id) = p_ref)
+     and created_at between p_at - interval '30 minutes' and p_at + interval '2 minutes';
+  return case when n = 1 then target end;
+end $$;
+revoke execute on function public.find_order_for_credit(numeric, text, timestamptz) from public, anon, authenticated;
+
+create or replace function public.ingest_bank_sms(p_key text, p_sender text, p_text text)
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  s      public.bank_sms_settings;
+  t      text := left(coalesce(p_text, ''), 1000);
+  lt     text;
+  snd    text := left(btrim(coalesce(p_sender, '')), 80);
+  m      text[];
+  amt    numeric(10,2);
+  v_ref  text;
+  c      public.bank_credits;
+  pay    public.payments;
+  target uuid;
+  open_n int;
+  res    text;
+begin
+  select * into s from public.bank_sms_settings where id = 1;
+  if s.key_hash is null or coalesce(p_key, '') = ''
+     or encode(sha256(convert_to(p_key, 'UTF8')), 'hex') <> s.key_hash then
+    return json_build_object('ok', false, 'error', 'bad key');
+  end if;
+  lt := lower(t);
+  if not s.enabled then res := 'ignored: auto-verify is off';
+  elsif coalesce(btrim(s.sender_filter), '') = '' then res := 'ignored: bank sender name not set';
+  elsif position(upper(btrim(s.sender_filter)) in upper(snd)) = 0 then res := 'ignored: sender does not match';
+  elsif snd ~ '^\+?[0-9 ()-]+$' then res := 'ignored: sent from a phone number';
+  elsif lt ~ '\mdebit' then res := 'ignored: debit message';
+  elsif lt !~ '(credited|\mcr\M|received|deposited)' then res := 'ignored: not a credit message';
+  else
+    -- "Rs 149", "INR 149.00", "₹149" or "credited by 149.00" (no currency word, as SBI writes it)
+    m := regexp_match(t, '(?:(?:rs\.?|inr|₹)\s*|(?:credited|debited|cr\.?|dr\.?)\s+(?:by|with|for)\s+(?:rs\.?\s*|inr\s*|₹\s*)?)([0-9][0-9,]*(?:\.[0-9]{1,2})?)', 'i');
+    amt := case when m is null then null else nullif(replace(m[1], ',', ''), '')::numeric end;
+    if amt is null or amt <= 0 then
+      res := 'ignored: amount not found';
+    else
+      m := regexp_match(t, '(?:upi\s*ref(?:erence)?|ref(?:erence)?|rrn|utr|txn)[^0-9]{0,15}([0-9]{12})', 'i');
+      if m is null then m := regexp_match(t, '\m([0-9]{12})\M'); end if;
+      v_ref := m[1];
+      select * into c from public.bank_credits
+       where (v_ref is not null and ref = v_ref)
+          or (v_ref is null and amount = amt and received_at > now() - interval '3 minutes')
+       limit 1;
+      if found then
+        res := 'duplicate';
+      else
+        select count(*) into open_n from public.payments
+         where amount = amt and created_at > now() - interval '30 minutes'
+           and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null));
+        insert into public.bank_credits (amount, ref, source, raw, reported_by, ambiguous)
+        values (amt, v_ref, left('sms:' || snd, 80), left(t, 500), 'sms-forwarder', open_n > 1)
+        returning * into c;
+        target := public.find_order_for_credit(amt, v_ref, now());
+        if target is not null then
+          pay := public.settle_bank_credit(c.id, target);
+          res := case when pay.status = 'approved' then 'activated' else 'matched: waiting for admin approval' end;
+        else
+          -- Already activated (UPI app / customer's debit SMS)? Attach the bank proof to it.
+          update public.payments set bank_credit_id = c.id, updated_at = now()
+           where id = (select id from public.payments
+                        where status = 'approved' and bank_credit_id is null and amount = amt
+                          and (case when v_ref is not null then upper(coalesce(txn_id, '')) = v_ref
+                                    else open_n = 0 end)
+                          and created_at > now() - interval '24 hours'
+                        order by created_at desc limit 1)
+          returning * into pay;
+          if pay.id is not null then
+            update public.bank_credits set payment_id = pay.id where id = c.id;
+            res := 'proof added to an active order';
+          elsif open_n > 1 then
+            res := 'several orders of this amount: waiting for the customer''s UTR';
+          else
+            res := 'no matching order';
+          end if;
+        end if;
+      end if;
+    end if;
+  end if;
+  insert into public.bank_sms_log (sender, result, amount, ref, payment_id) values (snd, res, amt, v_ref, pay.id);
+  return json_build_object('ok', true, 'result', res, 'amount', amt, 'ref', v_ref, 'payment_id', pay.id);
+end $$;
+revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
+grant execute on function public.ingest_bank_sms(text, text, text) to service_role;

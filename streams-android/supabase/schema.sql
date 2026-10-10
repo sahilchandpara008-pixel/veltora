@@ -2760,3 +2760,243 @@ update public.payments p set attribution_source = coalesce(ua.first_touch_source
        attribution_campaign = ua.first_touch_campaign, attribution_content = ua.first_touch_content
   from public.payments p2 left join public.user_attribution ua on ua.user_id = p2.user_id
  where p.id = p2.id and p.attribution_source is null;
+
+-- =====================================================================
+-- 31. BANK SMS AUTO-VERIFY (no payment gateway)
+--     * Every new order gets a unique amount: plan price + 1..99 paise, so one
+--       bank credit points at exactly one open order.
+--     * The owner's phone forwards the bank's "credited" SMS to the bank-sms Edge
+--       Function (secret key in the URL), which calls ingest_bank_sms().
+--     * Only SMS from the bank's sender name (set in Admin) are used; SMS from
+--       ordinary phone numbers are ignored, so a forged SMS can't unlock a plan.
+--     * Ads (Meta) buyers are activated at once; organic buyers' orders move to
+--       "Needs approval" with the bank proof attached, for the admin to approve.
+-- =====================================================================
+create table if not exists public.bank_sms_settings (
+  id            int primary key default 1 check (id = 1),
+  enabled       boolean not null default false,
+  sender_filter text,
+  key_hash      text,
+  updated_at    timestamptz not null default now()
+);
+alter table public.bank_sms_settings enable row level security;   -- no policies: functions only
+insert into public.bank_sms_settings (id) values (1) on conflict (id) do nothing;
+
+create table if not exists public.bank_sms_log (
+  id          bigint generated always as identity primary key,
+  received_at timestamptz not null default now(),
+  sender      text,
+  result      text,
+  amount      numeric(10,2),
+  ref         text,
+  payment_id  uuid
+);
+alter table public.bank_sms_log enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'bank_sms_log' and policyname = 'admins read sms log') then
+    create policy "admins read sms log" on public.bank_sms_log for select using (public.is_admin());
+  end if;
+end $$;
+
+-- Unique amount per open order (existing open order for the same plan is reused as before).
+create or replace function public.start_upi_payment(p_plan_id uuid)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare r public.payments; amt numeric(10,2); i int;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first'; end if;
+  if not exists (select 1 from public.subscription_plans where id = p_plan_id and active) then
+    raise exception 'This plan is not available';
+  end if;
+  select * into r from public.payments
+   where user_id = auth.uid() and status = 'initiated' and plan_id = p_plan_id
+     and created_at > now() - interval '24 hours'
+   order by created_at desc limit 1;
+  if found then return r; end if;
+  update public.payments set status = 'cancelled', updated_at = now(), reviewed_at = now(), reviewed_by = 'replaced by a new order'
+   where user_id = auth.uid() and status = 'initiated';
+  insert into public.payments (plan_id, reference, status)
+  values (p_plan_id,
+          'UPI' || to_char(now() at time zone 'Asia/Kolkata', 'YYYYMMDD')
+                || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)),
+          'initiated')
+  returning * into r;   -- amount = plan price (payments_before_insert)
+  for i in 1..60 loop
+    amt := r.amount + (1 + floor(random() * 99))::int / 100.0;
+    exit when not exists (
+      select 1 from public.payments
+       where id <> r.id and amount = amt and created_at > now() - interval '24 hours'
+         and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null)));
+  end loop;
+  update public.payments set amount = amt, updated_at = now() where id = r.id returning * into r;
+  return r;
+end $$;
+
+create or replace function public.user_is_meta(p_user uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.user_attribution where user_id = p_user and first_touch_source = 'meta')
+$$;
+revoke execute on function public.user_is_meta(uuid) from public, anon, authenticated;
+
+-- Attach one bank credit to one order, following the ads / organic rule.
+create or replace function public.settle_bank_credit(p_credit uuid, p_payment uuid)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare c public.bank_credits; pay public.payments;
+begin
+  select * into c from public.bank_credits where id = p_credit for update;
+  select * into pay from public.payments where id = p_payment for update;
+  if c.id is null or pay.id is null or c.payment_id is not null or c.amount <> pay.amount then return pay; end if;
+  if public.user_is_meta(pay.user_id) then
+    pay := public.apply_verified_payment(pay.id, c.amount, c.ref, null, 'bank_credit', c.id);
+  else
+    update public.payments
+       set status = 'pending', bank_credit_id = c.id, updated_at = now(),
+           txn_id = coalesce(txn_id, case when c.ref is not null and not exists (
+                      select 1 from public.payments p2 where p2.id <> pay.id and upper(p2.txn_id) = c.ref) then c.ref end),
+           reviewed_by = 'Paid (bank SMS confirmed) - waiting for admin approval'
+     where id = pay.id
+    returning * into pay;
+  end if;
+  update public.bank_credits set payment_id = pay.id where id = c.id;
+  return pay;
+end $$;
+revoke execute on function public.settle_bank_credit(uuid, uuid) from public, anon, authenticated;
+
+-- Customer polling ("Check payment status") also picks up a credit that arrived earlier.
+create or replace function public.try_verify_payment(p_payment_id uuid)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare pay public.payments; c public.bank_credits;
+begin
+  select * into pay from public.payments where id = p_payment_id;
+  if not found then return pay; end if;
+  if not (pay.status in ('initiated', 'failed', 'cancelled') or (pay.status = 'pending' and pay.bank_credit_id is null)) then
+    return pay;
+  end if;
+  select * into c from public.bank_credits
+   where payment_id is null and amount = pay.amount
+     and received_at >= pay.created_at - interval '2 minutes'
+     and received_at <= pay.created_at + interval '24 hours'
+   order by received_at limit 1 for update skip locked;
+  if not found then return pay; end if;
+  return public.settle_bank_credit(c.id, pay.id);
+end $$;
+revoke execute on function public.try_verify_payment(uuid) from public, anon, authenticated;
+
+-- Reads one forwarded SMS. Called only by the bank-sms Edge Function (service role).
+create or replace function public.ingest_bank_sms(p_key text, p_sender text, p_text text)
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  s      public.bank_sms_settings;
+  t      text := left(coalesce(p_text, ''), 1000);
+  lt     text;
+  snd    text := left(btrim(coalesce(p_sender, '')), 80);
+  m      text[];
+  amt    numeric(10,2);
+  v_ref  text;
+  c      public.bank_credits;
+  pay    public.payments;
+  target uuid;
+  open_n int;
+  res    text;
+begin
+  select * into s from public.bank_sms_settings where id = 1;
+  if s.key_hash is null or coalesce(p_key, '') = ''
+     or encode(sha256(convert_to(p_key, 'UTF8')), 'hex') <> s.key_hash then
+    return json_build_object('ok', false, 'error', 'bad key');
+  end if;
+  lt := lower(t);
+  if not s.enabled then res := 'ignored: auto-verify is off';
+  elsif coalesce(btrim(s.sender_filter), '') = '' then res := 'ignored: bank sender name not set';
+  elsif position(upper(btrim(s.sender_filter)) in upper(snd)) = 0 then res := 'ignored: sender does not match';
+  elsif snd ~ '^\+?[0-9 ()-]+$' then res := 'ignored: sent from a phone number';
+  elsif lt ~ '\mdebit' then res := 'ignored: debit message';
+  elsif lt !~ '(credited|\mcr\M|received|deposited)' then res := 'ignored: not a credit message';
+  else
+    m := regexp_match(t, '(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)', 'i');
+    amt := case when m is null then null else nullif(replace(m[1], ',', ''), '')::numeric end;
+    if amt is null or amt <= 0 then
+      res := 'ignored: amount not found';
+    else
+      m := regexp_match(t, '(?:upi\s*ref(?:erence)?|ref(?:erence)?|rrn|utr|txn)[^0-9]{0,15}([0-9]{12})', 'i');
+      if m is null then m := regexp_match(t, '\m([0-9]{12})\M'); end if;
+      v_ref := m[1];
+      select * into c from public.bank_credits
+       where (v_ref is not null and ref = v_ref)
+          or (v_ref is null and amount = amt and received_at > now() - interval '3 minutes')
+       limit 1;
+      if found then
+        res := 'duplicate';
+      else
+        select count(*) into open_n from public.payments
+         where amount = amt and created_at > now() - interval '24 hours'
+           and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null));
+        insert into public.bank_credits (amount, ref, source, raw, reported_by, ambiguous)
+        values (amt, v_ref, left('sms:' || snd, 80), left(t, 500), 'sms-forwarder', open_n > 1)
+        returning * into c;
+        select id into target from public.payments
+         where amount = amt and created_at > now() - interval '24 hours'
+           and (status in ('initiated', 'failed', 'cancelled') or (status = 'pending' and bank_credit_id is null))
+         order by (status = 'initiated') desc, created_at desc
+         limit 1 for update skip locked;
+        if target is not null then
+          pay := public.settle_bank_credit(c.id, target);
+          res := case when pay.status = 'approved' then 'activated' else 'matched: waiting for admin approval' end;
+        else
+          -- Already activated from the UPI app? Attach the bank proof to it.
+          update public.payments set bank_credit_id = c.id, updated_at = now()
+           where id = (select id from public.payments
+                        where status = 'approved' and bank_credit_id is null and amount = amt
+                          and created_at > now() - interval '24 hours'
+                        order by created_at desc limit 1)
+          returning * into pay;
+          if pay.id is not null then
+            update public.bank_credits set payment_id = pay.id where id = c.id;
+            res := 'proof added to an active order';
+          else
+            res := 'no matching order';
+          end if;
+        end if;
+      end if;
+    end if;
+  end if;
+  insert into public.bank_sms_log (sender, result, amount, ref, payment_id) values (snd, res, amt, v_ref, pay.id);
+  return json_build_object('ok', true, 'result', res, 'amount', amt, 'ref', v_ref, 'payment_id', pay.id);
+end $$;
+revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
+grant execute on function public.ingest_bank_sms(text, text, text) to service_role;
+
+-- Admin → Settings → Bank SMS auto-verify
+create or replace function public.admin_bank_sms_status()
+returns json language plpgsql stable security definer set search_path = public as $$
+declare s public.bank_sms_settings;
+begin
+  if not public.is_admin() then raise exception 'Not allowed'; end if;
+  select * into s from public.bank_sms_settings where id = 1;
+  return json_build_object('enabled', coalesce(s.enabled, false), 'sender_filter', s.sender_filter,
+                           'has_key', s.key_hash is not null, 'updated_at', s.updated_at);
+end $$;
+revoke execute on function public.admin_bank_sms_status() from public, anon;
+grant execute on function public.admin_bank_sms_status() to authenticated;
+
+create or replace function public.admin_set_bank_sms(p_enabled boolean, p_sender text)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_owner() is distinct from true then raise exception 'Only the owner can change this'; end if;
+  update public.bank_sms_settings
+     set enabled = coalesce(p_enabled, false), sender_filter = nullif(btrim(coalesce(p_sender, '')), ''), updated_at = now()
+   where id = 1;
+  return public.admin_bank_sms_status();
+end $$;
+revoke execute on function public.admin_set_bank_sms(boolean, text) from public, anon;
+grant execute on function public.admin_set_bank_sms(boolean, text) to authenticated;
+
+-- Returns a new secret key once (only its hash is stored). The old key stops working.
+create or replace function public.admin_new_bank_sms_key()
+returns text language plpgsql security definer set search_path = public as $$
+declare k text := replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
+begin
+  if public.is_owner() is distinct from true then raise exception 'Only the owner can change this'; end if;
+  update public.bank_sms_settings set key_hash = encode(sha256(convert_to(k, 'UTF8')), 'hex'), updated_at = now() where id = 1;
+  return k;
+end $$;
+revoke execute on function public.admin_new_bank_sms_key() from public, anon;
+grant execute on function public.admin_new_bank_sms_key() to authenticated;

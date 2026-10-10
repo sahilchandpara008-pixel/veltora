@@ -408,6 +408,8 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
             "approved" -> { activated = p; order = null; noAnswer = false; busy = false; onSubmitted() }
             "failed" -> { order = null; noAnswer = false; busy = false; error = "Payment failed. Please try again." }
             "cancelled" -> { order = null; noAnswer = false; busy = false; error = "Payment cancelled. You can try again." }
+            // Paid; the plan starts when it's approved.
+            "pending" -> { submitted = p; order = null; noAnswer = false; busy = false }
             else -> if (order?.id == p.id) order = p
         }
     }
@@ -422,7 +424,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
     }
     LaunchedEffect(order?.id) {
         val o = order ?: return@LaunchedEffect
-        repeat(120) {
+        repeat(360) {
             delay(5000)
             val p = runCatching { Repo.checkPaymentStatus(o.id) }.getOrNull() ?: return@repeat
             applyBackendStatus(p)
@@ -638,8 +640,8 @@ private fun WaitingForPaymentCard(
                 Text(order.planName ?: "", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
             }
             Text(
-                "Complete the payment in your UPI app. Your plan starts automatically within a few seconds — " +
-                    "after paying, just come back to Veltora.",
+                "Pay exactly ${formatPrice(order.amount)} — don't change the amount. Your plan starts as soon as " +
+                    "the payment reaches us (usually within a minute). After paying, just come back to Veltora.",
                 style = MaterialTheme.typography.bodySmall,
             )
             if (order.clientStatus == null) PrimaryButton(if (noAnswer) "Try paying again" else "Open UPI app", onPayAgain)

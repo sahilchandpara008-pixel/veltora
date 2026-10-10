@@ -438,7 +438,10 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                 } ?: existing!!.videoPath!!
                 val trailerPath = trailer?.let { next("trailer"); Repo.uploadFile(context, it, "videos", folder) }
                     ?: if (removeTrailer) null else existing?.trailerPath
-                val coverPath = cover?.let { next("thumbnail"); Repo.uploadFile(context, it, "images", folder) } ?: existing?.coverPath
+                val coverPath = cover?.let { next("thumbnail"); Repo.uploadFile(context, it, "images", folder) }
+                    ?: existing?.coverPath
+                    // No thumbnail chosen: take one from the video automatically.
+                    ?: (video ?: trailer)?.let { step = "Creating thumbnail…"; Repo.uploadVideoFrame(context, it, folder) }
                 step = "Publishing…"
                 Repo.creatorSaveTitle(existing?.id, channel.id, name, description, coverPath, videoPath, trailerPath, duration)
                 // Remove files this edit replaced.
@@ -505,7 +508,7 @@ private fun VideoDialog(channel: Channel, existing: Title?, onDismiss: () -> Uni
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Default.Image, null, tint = TextMuted, modifier = Modifier.size(36.dp))
                                 Text("Tap to choose a thumbnail", style = MaterialTheme.typography.bodyMedium, color = TextMuted)
-                                Text("16:9 image works best", style = MaterialTheme.typography.bodySmall)
+                                Text("Optional — skip it and we'll take one from your video", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

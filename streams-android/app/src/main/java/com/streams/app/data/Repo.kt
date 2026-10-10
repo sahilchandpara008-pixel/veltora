@@ -446,6 +446,42 @@ object Repo {
             }
         }
 
+    /**
+     * No thumbnail picked: grabs a frame from the video (a little way in, so it isn't a black
+     * intro frame), saves it as a 16:9-friendly JPEG and uploads it. Null if no frame could be read.
+     */
+    suspend fun uploadVideoFrame(context: Context, video: Uri, folder: String): String? = withContext(Dispatchers.IO) {
+        val frame = runCatching {
+            val r = android.media.MediaMetadataRetriever()
+            try {
+                r.setDataSource(context, video)
+                val ms = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                val at = if (ms > 0) minOf(ms / 10, 10_000L) else 1_000L
+                r.getFrameAtTime(at * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    ?: r.getFrameAtTime(0)
+            } finally {
+                r.release()
+            }
+        }.getOrNull() ?: return@withContext null
+        val scaled = if (frame.width > 1280) {
+            android.graphics.Bitmap.createScaledBitmap(frame, 1280, (frame.height * 1280f / frame.width).toInt().coerceAtLeast(1), true)
+        } else frame
+        val bytes = java.io.ByteArrayOutputStream().use {
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it)
+            it.toByteArray()
+        }
+        if (scaled !== frame) scaled.recycle()
+        frame.recycle()
+        val path = "$folder/${UUID.randomUUID()}.jpg"
+        runCatching {
+            supabase.storage.from("images").upload(path, bytes) {
+                upsert = false
+                contentType = ContentType.Image.JPEG
+            }
+            path
+        }.getOrNull()
+    }
+
     // ---------------------------------------------------------------- creator channels
     private fun myId(): String = supabase.auth.currentUserOrNull()?.id ?: error("Please sign in first")
 

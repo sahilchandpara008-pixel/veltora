@@ -186,7 +186,7 @@ fun ContentEditorScreen(nav: NavController, titleId: String?) {
                 ChipRow(names, current, { sel -> channelId = channels.firstOrNull { it.name == sel }?.id }, sidePadding = 0.dp)
             }
 
-            Step(4, "Thumbnail image")
+            Step(4, "Thumbnail image (optional — taken from the video if skipped)")
             FilePicker(
                 label = "Choose image",
                 picked = cover,
@@ -240,6 +240,8 @@ fun ContentEditorScreen(nav: NavController, titleId: String?) {
                 scope.launch {
                     try {
                         val coverPath = cover?.let { busy = "Uploading thumbnail…"; Repo.uploadFile(context, it, "images", "covers") }
+                            // No thumbnail chosen (and none saved yet): take one from the video automatically.
+                            ?: if (existing?.coverPath == null) (video ?: trailer)?.let { busy = "Creating thumbnail…"; Repo.uploadVideoFrame(context, it, "covers") } else null
                         val trailerPath = trailer?.let { busy = "Uploading trailer…"; Repo.uploadFile(context, it, "videos", "trailers") }
                         val videoPath = video?.let { busy = "Uploading video… (large files take a while)"; Repo.uploadFile(context, it, "videos", "videos") }
                         val duration = video?.let { durationSeconds(context, it) }

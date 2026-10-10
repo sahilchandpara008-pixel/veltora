@@ -218,6 +218,7 @@ data class Payment(
     /** "manual" (customer typed a UTR) or "upi_auto" (confirmed from the UPI app's response). */
     val method: String = "manual",
     @SerialName("txn_id") val txnId: String? = null,
+    @SerialName("attribution_source") val attributionSource: String? = null,
     @SerialName("reviewed_by") val reviewedBy: String? = null,
     /** Set when the money was seen arriving (bank SMS / UPI app notification on the owner's phone). */
     @SerialName("bank_credit_id") val bankCreditId: String? = null,
@@ -237,7 +238,7 @@ data class Payment(
             "approved" -> "SUCCESS"
             "failed" -> "FAILED"
             "cancelled" -> "CANCELLED"
-            "pending" -> "UTR REVIEW"
+            "pending" -> "AWAITING APPROVAL"
             "rejected" -> "REJECTED"
             "revoked" -> "REVOKED"
             else -> status.uppercase()
@@ -284,18 +285,6 @@ data class MetaStatus(
     @SerialName("token_hint") val tokenHint: String? = null,
     @SerialName("test_event_code") val testEventCode: String? = null,
 )
-
-/** A file in the member's private Cloud Storage folder (user-files/<user id>/...). */
-@Serializable
-data class CloudFile(
-    val name: String,
-    val size: Long = 0,
-    val mimetype: String? = null,
-    @SerialName("created_at") val createdAt: String,
-) {
-    /** Display name without the folder and the upload-time prefix. */
-    val displayName: String get() = name.substringAfterLast('/').substringAfter("__")
-}
 
 @Serializable
 data class AdminEmail(val email: String, val role: String)

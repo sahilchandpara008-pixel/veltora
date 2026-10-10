@@ -414,41 +414,6 @@ object Repo {
         runCatching { supabase.storage.from("videos").delete(e.videoPath) }
     }
 
-    // ---------------------------------------------------------------- premium cloud storage
-    suspend fun myFiles(): List<CloudFile> = supabase.postgrest.rpc("my_files").decodeList()
-
-    suspend fun cloudUsageBytes(): Long =
-        supabase.postgrest.rpc("my_cloud_usage").data.trim().trim('"').toLongOrNull() ?: 0L
-
-    suspend fun cloudFileUrl(name: String): String =
-        supabase.storage.from("user-files").createSignedUrl(name, 1.hours)
-
-    suspend fun deleteCloudFile(name: String) {
-        supabase.storage.from("user-files").delete(name)
-    }
-
-    /** Uploads a picked file into the member's own folder, keeping its original name. */
-    suspend fun uploadCloudFile(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-        val uid = supabase.auth.currentUserOrNull()?.id ?: error("Please sign in first")
-        val resolver = context.contentResolver
-        val mime = resolver.getType(uri) ?: "application/octet-stream"
-        val original = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
-            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "file"
-        val safe = original.replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120).ifBlank { "file" }
-        val tmp = File.createTempFile("cloud", null, context.cacheDir)
-        try {
-            resolver.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-            val path = "$uid/${System.currentTimeMillis()}__$safe"
-            supabase.storage.from("user-files").upload(path, tmp) {
-                upsert = false
-                contentType = ContentType.parse(mime)
-            }
-            path
-        } finally {
-            tmp.delete()
-        }
-    }
-
     /**
      * Copies the picked file to a temp file (so big videos stream from disk instead of memory)
      * and uploads it. Returns the storage path to save on the title.

@@ -209,10 +209,11 @@ private fun OverviewTab() {
 private fun PaymentsTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Pending = order created / UPI app answered but not verified yet. "UTR review" = customer typed a UTR.
+    // Unpaid = order created, no verified payment yet. "Needs approval" = organic buyer paid
+    // (UPI app said SUCCESS) or a customer typed a UTR: the plan starts only when you approve.
     val filters = mapOf(
-        "All" to null, "Pending" to "initiated", "Success" to "approved", "Failed" to "failed",
-        "Cancelled" to "cancelled", "UTR review" to "pending", "Rejected" to "rejected", "Revoked" to "revoked",
+        "All" to null, "Needs approval" to "pending", "Success" to "approved", "Unpaid" to "initiated", "Failed" to "failed",
+        "Cancelled" to "cancelled", "Rejected" to "rejected", "Revoked" to "revoked",
     )
     var filter by rememberSaveable { mutableStateOf("All") }
     var busyId by remember { mutableStateOf<String?>(null) }
@@ -237,7 +238,16 @@ private fun PaymentsTab() {
                             Text(p.userEmail ?: "—", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(formatPrice(p.amount), style = MaterialTheme.typography.titleMedium)
                         }
-                        Text("${p.planName} · Order ${p.reference}", style = MaterialTheme.typography.bodySmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${p.planName} · Order ${p.reference}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                            val ads = p.attributionSource == "meta"
+                            Text(
+                                if (ads) "ADS" else "ORGANIC",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (ads) Green else Amber,
+                                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Surface2).padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
                         Text(
                             p.displayStatus,
                             style = MaterialTheme.typography.labelLarge,

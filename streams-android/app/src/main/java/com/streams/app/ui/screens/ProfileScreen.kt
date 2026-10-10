@@ -163,7 +163,7 @@ fun ProfileScreen(nav: NavController) {
         is Load.Err -> ErrorState(s.message, load.reload)
         is Load.Ok -> {
             val d = s.data
-            // Coming from the Cloud tab's "+": jump to the Premium card + plans.
+            // Asked to show the plans (e.g. from a locked title): jump to the Premium card + plans.
             LaunchedEffect(scrollToPlans) {
                 if (scrollToPlans) {
                     listState.animateScrollToItem(if (d.adminRole != null) 3 else 2)
@@ -184,7 +184,7 @@ fun ProfileScreen(nav: NavController) {
                     )
                 }
                 val free = d.settings?.freeMode == true
-                item { MembershipCard(d.email, d.subscription, nav, free, d.settings?.cloudQuotaGb) }
+                item { MembershipCard(d.email, d.subscription, nav, free) }
                 if (d.adminRole != null) {
                     item {
                         MenuRow(
@@ -280,7 +280,7 @@ fun ProfileScreen(nav: NavController) {
 }
 
 @Composable
-private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController, free: Boolean = false, cloudGb: Int? = null) {
+private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController, free: Boolean = false) {
     val expires = sub?.expiresAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
     val active = sub?.status == "active" && expires?.isAfter(OffsetDateTime.now()) == true
     val left = if (active && expires != null) java.time.Duration.between(OffsetDateTime.now(), expires) else java.time.Duration.ZERO
@@ -314,7 +314,7 @@ private fun MembershipCard(email: String?, sub: Subscription?, nav: NavControlle
                     Text(email ?: "Welcome to Veltora", style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     val (label, color) = when {
                         email == null -> (if (free) "Sign in to watch everything for free" else "Sign in to watch and subscribe") to TextMuted
-                        free -> "Free account · ${cloudGb ?: 15} GB cloud storage" to TextMuted
+                        free -> "Free account · watch everything" to TextMuted
                         active -> "Premium member" to Gold
                         sub != null -> "Plan expired" to Amber
                         else -> "Free account" to TextMuted
@@ -473,10 +473,11 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                     Icon(Icons.Default.HourglassTop, null, tint = Amber)
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Payment submitted — waiting for verification", style = MaterialTheme.typography.titleSmall)
+                        Text("Payment received — waiting for approval", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${pending.planName ?: "Plan"} · ${formatPrice(pending.amount)} · Ref ${pending.reference}\n" +
-                                "Your plan starts as soon as we verify it (usually within a few hours).",
+                            "${pending.planName ?: "Plan"} · ${formatPrice(pending.amount)} · Ref ${pending.reference}" +
+                                (pending.txnId?.let { " · Txn $it" } ?: "") + "\n" +
+                                "Your plan starts as soon as it's approved (usually within a few hours).",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 4.dp),
                         )
@@ -526,8 +527,8 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                     Text(formatPrice(plan.price), style = MaterialTheme.typography.headlineSmall)
                 }
                 Text(
-                    "Pay with Google Pay, PhonePe, Paytm or any UPI app. Your plan starts automatically within " +
-                        "seconds of the payment — no UTR needed.",
+                    "Pay with Google Pay, PhonePe, Paytm or any UPI app. Your plan starts as soon as " +
+                        "the payment is confirmed — no UTR needed.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 PrimaryButton(
@@ -777,7 +778,7 @@ private fun DeleteAccountDialog(onDismiss: () -> Unit, onDeleted: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Your account, your Cloud Storage files, your channels and videos and your history will be deleted permanently. This can't be undone.",
+                    "Your account, your channels and videos and your history will be deleted permanently. This can't be undone.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(confirm, { confirm = it }, label = { Text("Type DELETE to confirm") }, singleLine = true, modifier = Modifier.fillMaxWidth())

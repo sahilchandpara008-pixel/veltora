@@ -2667,3 +2667,96 @@ language sql stable security definer set search_path = public as $$
    group by m.channel_id
 $$;
 grant execute on function public.channel_member_counts() to anon, authenticated;
+
+-- =====================================================================
+-- 30. ADS USERS ACTIVATE AT ONCE, ORGANIC USERS WAIT FOR THE ADMIN.
+--     A UPI SUCCESS from an account that came from Meta ads activates the
+--     plan straight away (as before). The same answer from any other
+--     account puts the order in Payments → Pending with its transaction
+--     ID; the plan starts only when the admin taps Approve.
+-- =====================================================================
+create or replace function public.report_upi_result(p_payment_id uuid, p_response text)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare
+  f   jsonb := public.parse_upi_response(p_response);
+  st  text := lower(coalesce(f ->> 'status', ''));
+  txn text;
+  pay public.payments;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first'; end if;
+  update public.payments
+     set upi_response  = left(p_response, 2000),
+         client_status = nullif(st, ''),
+         updated_at    = now(),
+         status        = case when st in ('failure', 'failed') then 'failed' else status end,
+         reviewed_at   = case when st in ('failure', 'failed') then now() else reviewed_at end,
+         reviewed_by   = case when st in ('failure', 'failed') then 'UPI app: payment failed' else reviewed_by end
+   where id = p_payment_id and user_id = auth.uid() and status = 'initiated'
+  returning * into pay;
+  if not found then
+    select * into pay from public.payments where id = p_payment_id and user_id = auth.uid();
+    if not found then raise exception 'Order not found'; end if;
+    return pay;
+  end if;
+
+  if st = 'success'
+     and (nullif(f ->> 'txnref', '') is null or upper(f ->> 'txnref') = upper(pay.reference))
+     and pay.created_at > now() - interval '2 hours' then
+    txn := upper(regexp_replace(coalesce(nullif(f ->> 'approvalrefno', ''), nullif(f ->> 'txnid', ''), ''), '\s', '', 'g'));
+    if txn ~ '^[A-Z0-9]{6,40}$'
+       and not exists (select 1 from public.payments where id <> pay.id and upper(txn_id) = txn) then
+      if public.is_meta_user() then
+        return public.apply_verified_payment(pay.id, pay.amount, txn, null, 'upi_app', null);
+      end if;
+      -- organic account: hold for the admin
+      update public.payments
+         set status = 'pending', txn_id = txn, reviewed_by = 'Waiting for admin approval', updated_at = now()
+       where id = pay.id
+      returning * into pay;
+      return pay;
+    end if;
+  end if;
+  return public.try_verify_payment(pay.id);
+end $$;
+
+-- Approve keeps the UPI transaction ID when there is one.
+create or replace function public.approve_payment(p_payment_id uuid)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare pay public.payments;
+begin
+  if not public.is_admin() then raise exception 'Not allowed'; end if;
+  select * into pay from public.payments where id = p_payment_id;
+  if not found or pay.status <> 'pending' then raise exception 'This payment was already processed'; end if;
+  return public.apply_verified_payment(pay.id, pay.amount, coalesce(pay.txn_id, pay.reference), null, 'admin', null);
+end $$;
+
+-- Every payment carries the buyer's source (meta / organic / ...) from the moment it is
+-- created, so the admin can tell ads orders from organic ones while they wait for approval.
+create or replace function public.payments_attribution()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare ua public.user_attribution; had_active boolean;
+begin
+  if new.attribution_source is null or (new.status = 'approved' and old.status is distinct from 'approved') then
+    select * into ua from public.user_attribution where user_id = new.user_id;
+    new.attribution_source   := coalesce(ua.first_touch_source, 'unknown');
+    new.attribution_campaign := ua.first_touch_campaign;
+    new.attribution_content  := ua.first_touch_content;
+  end if;
+  if tg_op = 'UPDATE' and new.status = 'approved' and old.status is distinct from 'approved' then
+    select exists (select 1 from public.subscriptions
+                    where user_id = new.user_id and status = 'active' and expires_at > now()) into had_active;
+    insert into public.analytics_events (event, user_id, source, campaign, plan_id)
+    values ('payment_success', new.user_id, new.attribution_source, new.attribution_campaign, new.plan_id);
+    if not had_active then
+      insert into public.analytics_events (event, user_id, source, campaign, plan_id)
+      values ('subscription_started', new.user_id, new.attribution_source, new.attribution_campaign, new.plan_id);
+    end if;
+  end if;
+  return new;
+end $$;
+create or replace trigger payments_attribution before insert or update on public.payments
+  for each row execute function public.payments_attribution();
+update public.payments p set attribution_source = coalesce(ua.first_touch_source, 'unknown'),
+       attribution_campaign = ua.first_touch_campaign, attribution_content = ua.first_touch_content
+  from public.payments p2 left join public.user_attribution ua on ua.user_id = p2.user_id
+ where p.id = p2.id and p.attribution_source is null;

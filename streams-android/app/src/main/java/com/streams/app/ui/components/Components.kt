@@ -382,11 +382,11 @@ fun LockedNote(text: String) {
     }
 }
 
-/** Benefits every premium plan includes (shown on Profile above the plans, and on Cloud Storage). */
+/** Benefits every premium plan includes (shown on Profile above the plans). */
 val PremiumBenefits = listOf(
-    "Ad-Free Experience",
-    "Access 2 TB Cloud Storage",
-    "Fast Upload & Download Speed",
+    "Watch every movie and series in full",
+    "Premium and exclusive titles",
+    "Ad-free HD streaming",
 )
 
 @Composable

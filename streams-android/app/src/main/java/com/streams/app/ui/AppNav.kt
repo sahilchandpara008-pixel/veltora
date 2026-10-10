@@ -7,11 +7,9 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.Person
@@ -53,7 +51,6 @@ import com.streams.app.ui.screens.AuthScreen
 import com.streams.app.ui.screens.SetPasswordScreen
 import com.streams.app.ui.screens.ChannelDetailScreen
 import com.streams.app.ui.screens.ChannelsScreen
-import com.streams.app.ui.screens.CloudScreen
 import com.streams.app.ui.screens.CreatorScreen
 import com.streams.app.ui.screens.HomeScreen
 import com.streams.app.ui.screens.PlayerScreen
@@ -72,7 +69,6 @@ private val tabs = listOf(
     Tab("home", "Home", Icons.Filled.Home, Icons.Outlined.Home),
     Tab("channels", "Channels", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
     Tab("shows", "Shows", Icons.Filled.VideoLibrary, Icons.Outlined.VideoLibrary),
-    Tab("cloud", "Cloud", Icons.Filled.Cloud, Icons.Outlined.Cloud),
     Tab("profile", "Profile", Icons.Filled.Person, Icons.Outlined.Person),
 )
 
@@ -140,7 +136,6 @@ fun AppNav() {
             composable("home") { HomeScreen(nav) }
             composable("channels") { ChannelsScreen(nav) }
             composable("shows") { ShowsScreen(nav) }
-            composable("cloud") { CloudScreen(nav) }
             composable("profile") { ProfileScreen(nav) }
             composable("creator") {
                 if (!signedIn) AuthScreen(onClose = { nav.popBackStack() }, reason = "Sign in to create your channel.")

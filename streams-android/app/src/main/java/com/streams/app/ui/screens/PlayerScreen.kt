@@ -2,10 +2,6 @@ package com.streams.app.ui.screens
 
 import com.streams.app.data.MetaEvents
 import android.app.Activity
-import android.content.pm.ActivityInfo
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.runtime.MutableState
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
@@ -37,13 +33,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -54,7 +50,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.streams.app.AppState
 import com.streams.app.Load
@@ -101,54 +96,26 @@ fun PlayerScreen(nav: NavController, titleId: String, requestedMode: String, epi
     }
 
     ImmersiveMode()
-    val landscape = PlayerOrientation()
+    // Follows the phone's sensor by default (even with system auto-rotate off), like MX Player.
+    var rotation by rememberSaveable { mutableStateOf(Rotation.AUTO) }
+    PlayerRotation(rotation)
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = load.state) {
             Load.Loading -> Loading()
             is Load.Err -> ErrorState(s.message, load.reload)
-            is Load.Ok -> VideoPlayer(s.data, nav, hasSub)
+            is Load.Ok -> VideoPlayer(s.data, nav, hasSub, rotation) { rotation = it }
         }
-        IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.statusBarsPadding().padding(8.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-        }
-        // Full-screen toggle: forces landscape (either side); tap again to follow the phone's rotation.
-        IconButton(
-            onClick = { landscape.value = !landscape.value },
-            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp),
-        ) {
-            Icon(
-                if (landscape.value) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                if (landscape.value) "Exit full screen" else "Full screen",
-                tint = Color.White,
-            )
+        if (load.state !is Load.Ok) {
+            IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.statusBarsPadding().padding(8.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+            }
         }
     }
-}
-
-/**
- * While the player is open the screen follows the phone's rotation (respecting the user's
- * auto-rotate setting); the returned flag forces landscape. The previous orientation is restored
- * when the player closes.
- */
-@Composable
-private fun PlayerOrientation(): MutableState<Boolean> {
-    val landscape = remember { mutableStateOf(false) }
-    val activity = LocalContext.current as? Activity ?: return landscape
-    DisposableEffect(Unit) {
-        val previous = activity.requestedOrientation
-        onDispose { activity.requestedOrientation = previous }
-    }
-    LaunchedEffect(landscape.value) {
-        activity.requestedOrientation =
-            if (landscape.value) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-    }
-    return landscape
 }
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun VideoPlayer(p: Playback, nav: NavController, hasSub: Boolean) {
+private fun VideoPlayer(p: Playback, nav: NavController, hasSub: Boolean, rotation: Rotation, onRotation: (Rotation) -> Unit) {
     val context = LocalContext.current
     val session by AppState.session.collectAsStateWithLifecycle()
     val signedIn = session is SessionStatus.Authenticated
@@ -212,25 +179,19 @@ private fun VideoPlayer(p: Playback, nav: NavController, hasSub: Boolean) {
         }
     }
 
-    AndroidView(
-        factory = {
-            PlayerView(it).apply {
-                this.player = player
-                keepScreenOn = true
-                setShowSubtitleButton(true)
-            }
+    ProPlayer(
+        player = player,
+        title = p.heading,
+        badge = when (p.mode) {
+            "trailer" -> "Trailer"
+            "preview" -> if (previewOver) null else "Preview · 30 seconds"
+            else -> null
         },
-        modifier = Modifier.fillMaxSize(),
+        rotation = rotation,
+        onRotation = onRotation,
+        onBack = { nav.popBackStack() },
+        maxPositionMs = if (p.mode == "preview") PREVIEW_MS else null,
     )
-
-    if (p.mode == "preview" && !previewOver) {
-        Text(
-            "Preview · 30 seconds",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
-            modifier = Modifier.statusBarsPadding().padding(top = 20.dp, start = 64.dp),
-        )
-    }
 
     val fullAllowed = signedIn && canWatchFull(p.title, hasSub)
     when {

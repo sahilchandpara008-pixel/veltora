@@ -6,6 +6,11 @@ import com.streams.app.data.Links
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Policy
@@ -431,6 +436,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
     LaunchedEffect(d.openOrder?.id) { if (order == null && activated == null) order = d.openOrder }
     // Installed UPI apps (GPay, PhonePe, Paytm, BHIM…), shown as direct buttons.
     val upiApps = remember { installedUpiApps(context) }
+    var pickFor by remember { mutableStateOf<Payment?>(null) }
     val pending = submitted ?: d.payments.firstOrNull { it.status == "submitted" || it.status == "review" }
 
     // Final status always comes from the backend (check_payment_status), which activates a plan
@@ -494,6 +500,14 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
     fun openUpiApp(settings: PaymentSettings, o: Payment, pkg: String? = null) {
         noAnswer = false
         val upi = upiIntent(settings, o)
+        if (pkg == null && upiApps.isNotEmpty()) {
+            // Our own app list: the picked app is started directly for a result, so it closes after the
+            // payment and hands SUCCESS / FAILURE back. (The system chooser often opens it in a separate
+            // task, where it never returns.)
+            busy = false
+            pickFor = o
+            return
+        }
         if (pkg != null) {
             // A specific app picked from the list: open it directly, no chooser.
             if (!UpiPay.pay(upi.setPackage(pkg), o.id)) { busy = false; error = "Couldn't open that app. Try another UPI app." }
@@ -502,6 +516,40 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
         if (!UpiPay.pay(Intent.createChooser(upi, "Pay with"), o.id)) {
             busy = false
             error = "No UPI app found on this phone."
+        }
+    }
+
+    pickFor?.let { o ->
+        val settings = d.settings
+        if (settings != null) {
+            AlertDialog(
+                onDismissRequest = { pickFor = null },
+                title = { Text("Pay ${formatPrice(o.rupees)} with") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        upiApps.forEach { app ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable { pickFor = null; openUpiApp(settings, o, app.pkg) }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (app.icon != null) {
+                                    Image(app.icon, null, modifier = Modifier.size(36.dp))
+                                } else {
+                                    Box(Modifier.size(36.dp).clip(CircleShape).background(Surface2))
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(app.label, style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { pickFor = null }) { Text("Cancel") } },
+            )
         }
     }
 
@@ -547,7 +595,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
             WaitingForPaymentCard(
                 waiting,
                 onPayAgain = { openUpiApp(d.settings, waiting) },
-                apps = upiApps,
+                apps = upiApps.map { it.label to it.pkg },
                 onPayWith = { pkg -> openUpiApp(d.settings, waiting, pkg) },
                 noAnswer = noAnswer,
                 checking = checking,
@@ -834,14 +882,22 @@ private fun upiIntent(s: PaymentSettings, order: Payment): Intent {
     return Intent(Intent.ACTION_VIEW, uri)
 }
 
-/** (app name, package) of every installed app that handles upi://pay. */
-private fun installedUpiApps(context: Context): List<Pair<String, String>> {
+private class UpiApp(val label: String, val pkg: String, val icon: ImageBitmap?)
+
+/** Every installed app that handles upi://pay (GPay, PhonePe, Paytm, BHIM, bank apps…). */
+private fun installedUpiApps(context: Context): List<UpiApp> {
     val pm = context.packageManager
     return runCatching {
         pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")), 0)
-            .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
-            .distinctBy { it.second }
-            .sortedBy { it.first.lowercase() }
+            .distinctBy { it.activityInfo.packageName }
+            .map { ri ->
+                UpiApp(
+                    ri.loadLabel(pm).toString(),
+                    ri.activityInfo.packageName,
+                    runCatching { ri.loadIcon(pm).toBitmap(96, 96).asImageBitmap() }.getOrNull(),
+                )
+            }
+            .sortedBy { it.label.lowercase() }
     }.getOrDefault(emptyList())
 }
 

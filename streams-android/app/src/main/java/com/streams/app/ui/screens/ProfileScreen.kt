@@ -499,12 +499,6 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
             if (!UpiPay.pay(upi.setPackage(pkg), o.id)) { busy = false; error = "Couldn't open that app. Try another UPI app." }
             return
         }
-        if (upiApps.isEmpty()) {
-            busy = false
-            error = "No UPI app found on this phone. Install Google Pay, PhonePe, Paytm or BHIM, or pay to the UPI ID below and enter the UTR."
-            showManual = true
-            return
-        }
         if (!UpiPay.pay(Intent.createChooser(upi, "Pay with"), o.id)) {
             busy = false
             error = "No UPI app found on this phone."

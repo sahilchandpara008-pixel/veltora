@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Tab
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -95,6 +96,7 @@ private const val TRENDING = "Trending"
 private const val LATEST = "Latest"
 private const val MOST_WATCHED = "Most watched"
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelsScreen(nav: NavController) {
     val access by AppState.accessVersion.collectAsStateWithLifecycle()

@@ -212,6 +212,7 @@ data class Subscription(
     @SerialName("plan_id") val planId: String? = null,
     val status: String,
     @SerialName("expires_at") val expiresAt: String,
+    @SerialName("starts_at") val startsAt: String? = null,
 )
 
 @Serializable

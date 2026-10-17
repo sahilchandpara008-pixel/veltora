@@ -1,5 +1,7 @@
 package com.streams.app.ui.screens
 
+import com.streams.app.ui.theme.Surface3
+
 import com.streams.app.data.Links
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
@@ -184,7 +186,7 @@ fun ProfileScreen(nav: NavController) {
                     )
                 }
                 val free = d.settings?.freeMode == true
-                item { MembershipCard(d.email, d.subscription, nav, free) }
+                item { MembershipCard(d.email, d.subscription, nav, free, d.plans.firstOrNull { it.id == d.subscription?.planId }?.name) }
                 if (d.adminRole != null) {
                     item {
                         MenuRow(
@@ -280,7 +282,7 @@ fun ProfileScreen(nav: NavController) {
 }
 
 @Composable
-private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController, free: Boolean = false) {
+private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController, free: Boolean = false, planName: String? = null) {
     val expires = sub?.expiresAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
     val active = sub?.status == "active" && expires?.isAfter(OffsetDateTime.now()) == true
     val left = if (active && expires != null) java.time.Duration.between(OffsetDateTime.now(), expires) else java.time.Duration.ZERO
@@ -335,6 +337,16 @@ private fun MembershipCard(email: String?, sub: Subscription?, nav: NavControlle
                 }
                 active -> {
                     Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(planName ?: "Premium plan", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            "ACTIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            modifier = Modifier.clip(CircleShape).background(Green.copy(alpha = 0.85f)).padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text("$leftValue", fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Color.White)
                         Spacer(Modifier.width(6.dp))
@@ -345,6 +357,20 @@ private fun MembershipCard(email: String?, sub: Subscription?, nav: NavControlle
                         )
                     }
                     Text("Valid until ${formatDate(sub!!.expiresAt)}", style = MaterialTheme.typography.bodySmall)
+                    // How much of the plan is used up.
+                    val start = sub.startsAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+                    if (start != null && expires != null) {
+                        val total = java.time.Duration.between(start, expires).seconds.coerceAtLeast(1)
+                        val used = (1f - left.seconds.toFloat() / total).coerceIn(0f, 1f)
+                        Spacer(Modifier.height(10.dp))
+                        LinearProgressIndicator(
+                            progress = { used },
+                            color = Red,
+                            trackColor = Surface3,
+                            drawStopIndicator = {},
+                            modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                        )
+                    }
                 }
                 sub != null && !free -> {
                     Spacer(Modifier.height(10.dp))

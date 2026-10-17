@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -273,7 +274,7 @@ fun compactCount(n: Long): String = when {
  * The server only accepts channels this viewer is allowed to see.
  */
 @Composable
-fun JoinButton(channelId: String, nav: NavController, compact: Boolean = false) {
+fun JoinButton(channelId: String, nav: NavController, compact: Boolean = false, fullWidth: Boolean = false) {
     val joinedSet by ChannelJoins.joined.collectAsStateWithLifecycle()
     val joined = channelId in joinedSet
     val scope = rememberCoroutineScope()
@@ -281,6 +282,7 @@ fun JoinButton(channelId: String, nav: NavController, compact: Boolean = false) 
     val shape = RoundedCornerShape(50)
     Row(
         Modifier
+            .then(if (fullWidth) Modifier.fillMaxWidth().height(46.dp) else Modifier)
             .clip(shape)
             .then(if (joined) Modifier.border(1.dp, Outline, shape) else Modifier.background(Red))
             .clickable {
@@ -296,6 +298,7 @@ fun JoinButton(channelId: String, nav: NavController, compact: Boolean = false) 
             }
             .padding(horizontal = if (compact) 14.dp else 20.dp, vertical = if (compact) 7.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
         Icon(
             if (joined) Icons.Default.Check else Icons.Default.Add, null,
@@ -357,25 +360,35 @@ fun ChannelDetailScreen(nav: NavController, channelId: String) {
                                 if (reporting) ReportDialog("channel", ch.id, ch.name) { reporting = false }
                             }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            ChannelAvatar(ch?.name ?: "Channel", ch?.avatarPath, 64)
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            ChannelAvatar(ch?.name ?: "Channel", ch?.avatarPath, 88)
+                            Text(
+                                ch?.name ?: "Channel", style = MaterialTheme.typography.headlineSmall,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                            Text(
+                                channelStats(members, titles.size), style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                            ch?.description?.takeIf { it.isNotBlank() }?.let {
                                 Text(
-                                    ch?.name ?: "Channel", style = MaterialTheme.typography.headlineSmall,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    it, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
+                                    maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 10.dp),
                                 )
-                                Text(channelStats(members, titles.size), style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (ch != null) {
+                                Spacer(Modifier.height(16.dp))
+                                JoinButton(ch.id, nav, fullWidth = true)
                             }
                         }
-                        if (ch != null) {
-                            Spacer(Modifier.height(12.dp))
-                            JoinButton(ch.id, nav)
+                        HorizontalDivider(color = Outline, modifier = Modifier.padding(top = 20.dp))
+                        Row(Modifier.padding(top = 16.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Videos", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.width(8.dp))
+                            Text("${titles.size}", style = MaterialTheme.typography.bodySmall)
                         }
-                        ch?.description?.takeIf { it.isNotBlank() }?.let {
-                            Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
-                        }
-                        Text("Videos", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 18.dp))
                     }
                 }
                 if (titles.isEmpty()) {

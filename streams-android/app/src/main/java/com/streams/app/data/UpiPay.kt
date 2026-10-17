@@ -74,9 +74,11 @@ object UpiPay {
                     if (p.status == "paid") {
                         AppState.accessVersion.value++
                         MetaEvents.checkPurchases()
-                        Toast.makeText(appContext, "Payment successful! Your subscription is now active.", Toast.LENGTH_LONG).show()
-                    } else if (p.status == "submitted" || p.status == "review") {
-                        Toast.makeText(appContext, "Payment submitted — verifying. Your plan starts as soon as it's confirmed.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(appContext, "Payment successful! Your plan is now active.", Toast.LENGTH_LONG).show()
+                    } else if (p.status == "failed") {
+                        Toast.makeText(appContext, "Payment failed. Please try again.", Toast.LENGTH_LONG).show()
+                    } else if (p.status == "submitted" || p.status == "review" || p.status == "pending") {
+                        Toast.makeText(appContext, "Payment verification is pending. We're checking your payment.", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }

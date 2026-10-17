@@ -210,10 +210,10 @@ object Repo {
     suspend fun payment(id: String): Payment? =
         supabase.from("payments").select { filter { eq("id", id) } }.decodeList<Payment>().firstOrNull()
 
-    /** My unfinished automatic order from the last hour, if any (so waiting survives an app restart). */
+    /** My unfinished order from the last 24 h, if any (so waiting survives an app restart). */
     suspend fun myOpenOrder(): Payment? {
         val uid = supabase.auth.currentUserOrNull()?.id ?: return null
-        val since = java.time.OffsetDateTime.now().minusMinutes(30).toString()   // unpaid orders expire after 30 minutes
+        val since = java.time.OffsetDateTime.now().minusHours(24).toString()   // unpaid orders are cancelled after 24 hours
         return supabase.from("payments").select {
             filter { eq("user_id", uid); eq("status", "pending"); gt("created_at", since) }
             order("created_at", Order.DESCENDING)
@@ -310,6 +310,18 @@ object Repo {
             order("created_at", Order.DESCENDING)
             limit(200)
         }.decodeList()
+
+    /** Owner: mark an order paid with the 12-digit bank UTR (also failed / cancelled orders). */
+    suspend fun adminMarkPaid(id: String, utr: String, note: String?) {
+        supabase.postgrest.rpc("admin_mark_paid", buildJsonObject {
+            put("p_payment_id", id); put("p_utr", utr); put("p_note", note)
+        })
+    }
+
+    /** Owner: take a paid plan back (the money never arrived). */
+    suspend fun adminRevokePayment(id: String, note: String?) {
+        supabase.postgrest.rpc("admin_revoke_payment", buildJsonObject { put("p_payment_id", id); put("p_note", note) })
+    }
 
     suspend fun approvePayment(id: String) {
         supabase.postgrest.rpc("approve_payment", buildJsonObject { put("p_payment_id", id) })

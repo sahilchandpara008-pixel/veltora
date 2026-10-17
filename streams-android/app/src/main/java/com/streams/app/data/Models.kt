@@ -245,9 +245,11 @@ data class Payment(
     /** What the UPI app said (success/failure/…): a client report only, never proof of payment. */
     @SerialName("client_status") val clientStatus: String? = null,
     @SerialName("verified_at") val verifiedAt: String? = null,
-    /** Who verified it: bank_credit | admin | provider_api. */
+    /** Who verified it: upi_app | bank_credit | gateway | admin | provider_api. */
     @SerialName("verification_source") val verificationSource: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
+    /** Why the server did or did not accept the UPI app's answer. */
+    @SerialName("result_note") val resultNote: String? = null,
 ) {
     /** Order status shown to people. */
     val displayStatus: String
@@ -256,7 +258,9 @@ data class Payment(
             "submitted", "review" -> "VERIFYING"
             "paid" -> "PAID"
             "rejected" -> "REJECTED"
-            "expired" -> "EXPIRED"
+            "failed" -> "FAILED"
+            "cancelled", "expired" -> "CANCELLED"
+            "revoked" -> "REVOKED"
             else -> status.uppercase()
         }
 

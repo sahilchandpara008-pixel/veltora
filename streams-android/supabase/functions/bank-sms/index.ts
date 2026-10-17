@@ -3,10 +3,43 @@
 // URL: .../functions/v1/bank-sms?key=<secret from Admin → Settings → Bank SMS auto-verify>
 // Body: JSON ({"from": "...", "text": "..."} and similar key names), form data or plain text.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+async function sha256(s: string) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s.trim().toLowerCase()));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Server-side Meta Purchase, once per payment (event_id = order_id). */
+async function sendMetaPurchase(admin: SupabaseClient, paymentId: string) {
+  try {
+    const { data: s } = await admin.from("app_settings").select("meta_enabled, meta_pixel_id").eq("id", 1).maybeSingle();
+    const { data: secret } = await admin.from("meta_secrets").select("capi_token, test_event_code").eq("id", 1).maybeSingle();
+    const pixel = s?.meta_pixel_id?.trim();
+    if (!s?.meta_enabled || !pixel || !secret?.capi_token) return;
+    const { data: p } = await admin.rpc("claim_meta_purchase_server", { p_payment_id: paymentId });
+    if (!p) return;
+    const userData: Record<string, unknown> = { external_id: [await sha256(p.user_id)] };
+    if (p.email) userData.em = [await sha256(p.email)];
+    const payload: Record<string, unknown> = {
+      data: [{
+        event_name: "Purchase", event_id: p.order_id, event_time: Math.floor(Date.now() / 1000), action_source: "website",
+        user_data: userData,
+        custom_data: { value: Number(p.value), currency: "INR", content_name: p.plan_name, content_type: "product", order_id: p.order_id },
+      }],
+    };
+    if (secret.test_event_code) payload.test_event_code = secret.test_event_code;
+    const res = await fetch(`https://graph.facebook.com/v23.0/${encodeURIComponent(pixel)}/events?access_token=${encodeURIComponent(secret.capi_token)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!res.ok) console.error("Meta CAPI error", res.status, (await res.text()).slice(0, 300));
+  } catch (e) {
+    console.error("Meta purchase failed", e);
+  }
 }
 
 const TEXT_KEYS = ["text", "message", "msg", "body", "content", "sms", "smstext", "sms_text", "messagebody"];
@@ -56,5 +89,7 @@ Deno.serve(async (req) => {
   const { data, error } = await admin.rpc("ingest_bank_sms", { p_key: key, p_sender: from, p_text: text });
   if (error) return json({ ok: false, error: error.message }, 500);
   if (data && (data as { ok?: boolean }).ok === false) return json(data, 401);
+  const r = data as { result?: string; payment_id?: string } | null;
+  if (r?.result === "activated" && r.payment_id) await sendMetaPurchase(admin, r.payment_id);
   return json(data);
 });

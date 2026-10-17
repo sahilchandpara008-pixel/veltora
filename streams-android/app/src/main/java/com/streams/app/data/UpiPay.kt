@@ -42,9 +42,11 @@ object UpiPay {
 
     /** Returns false when the UPI app could not be opened. */
     fun pay(intent: Intent, orderId: String): Boolean {
-        val l = launcher ?: return false
         prefs.edit().putString(KEY_ORDER, orderId).remove(KEY_RESPONSE).apply()
-        val opened = runCatching { l.launch(intent) }.isSuccess
+        // Normal path: the result comes back to MainActivity. If that is not possible, open the UPI app
+        // anyway (no result then; the order is still checked by polling, bank SMS and UTR).
+        val opened = launcher?.let { l -> runCatching { l.launch(intent) }.isSuccess } == true ||
+            runCatching { appContext.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
         if (opened) DebitSms.start(orderId)
         return opened
     }

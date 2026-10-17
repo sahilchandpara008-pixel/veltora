@@ -17,6 +17,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -427,6 +429,8 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
     // the incoming bank credit of that amount activates it.
     var order by remember { mutableStateOf<Payment?>(null) }
     LaunchedEffect(d.openOrder?.id) { if (order == null && activated == null) order = d.openOrder }
+    // Installed UPI apps (GPay, PhonePe, Paytm, BHIM…), shown as direct buttons.
+    val upiApps = remember { installedUpiApps(context) }
     val pending = submitted ?: d.payments.firstOrNull { it.status == "submitted" || it.status == "review" }
 
     // Final status always comes from the backend (check_payment_status), which activates a plan
@@ -487,10 +491,15 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
         if (p.status == "pending" && order == null) order = p
         applyBackendStatus(p)
     }
-    fun openUpiApp(settings: PaymentSettings, o: Payment) {
+    fun openUpiApp(settings: PaymentSettings, o: Payment, pkg: String? = null) {
         noAnswer = false
         val upi = upiIntent(settings, o)
-        if (context.packageManager.queryIntentActivities(upi, 0).isEmpty()) {
+        if (pkg != null) {
+            // A specific app picked from the list: open it directly, no chooser.
+            if (!UpiPay.pay(upi.setPackage(pkg), o.id)) { busy = false; error = "Couldn't open that app. Try another UPI app." }
+            return
+        }
+        if (upiApps.isEmpty()) {
             busy = false
             error = "No UPI app found on this phone. Install Google Pay, PhonePe, Paytm or BHIM, or pay to the UPI ID below and enter the UTR."
             showManual = true
@@ -544,6 +553,8 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
             WaitingForPaymentCard(
                 waiting,
                 onPayAgain = { openUpiApp(d.settings, waiting) },
+                apps = upiApps,
+                onPayWith = { pkg -> openUpiApp(d.settings, waiting, pkg) },
                 noAnswer = noAnswer,
                 checking = checking,
                 onCheck = { checkNow(waiting) },
@@ -662,6 +673,8 @@ private fun WaitingForPaymentCard(
     onPayAgain: () -> Unit,
     onEnterUtr: () -> Unit,
     onCancel: () -> Unit,
+    apps: List<Pair<String, String>> = emptyList(),
+    onPayWith: (String) -> Unit = {},
 ) {
     Card(padding = 18.dp) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -694,7 +707,27 @@ private fun WaitingForPaymentCard(
                     "payment reaches us. Not active after a few minutes? Tap \"Enter UTR\" and type the 12-digit UTR from your UPI app.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            if (order.clientStatus == null) PrimaryButton(if (noAnswer) "Try paying again" else "Open UPI app", onPayAgain)
+            if (order.status == "pending") {
+                PrimaryButton(if (noAnswer || order.clientStatus != null) "Try paying again" else "Open UPI app", onPayAgain)
+                if (apps.isNotEmpty()) {
+                    Text("Or pay directly with", style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        apps.forEach { (label, pkg) ->
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Surface2)
+                                    .border(1.dp, Outline, CircleShape)
+                                    .clickable { onPayWith(pkg) }
+                                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                            )
+                        }
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Paid but not active? Enter UTR",
@@ -805,6 +838,17 @@ private fun upiIntent(s: PaymentSettings, order: Payment): Intent {
         .appendQueryParameter("tn", "Veltora $ref")
         .build()
     return Intent(Intent.ACTION_VIEW, uri)
+}
+
+/** (app name, package) of every installed app that handles upi://pay. */
+private fun installedUpiApps(context: Context): List<Pair<String, String>> {
+    val pm = context.packageManager
+    return runCatching {
+        pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")), 0)
+            .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
+            .distinctBy { it.second }
+            .sortedBy { it.first.lowercase() }
+    }.getOrDefault(emptyList())
 }
 
 private fun copy(context: Context, text: String) {

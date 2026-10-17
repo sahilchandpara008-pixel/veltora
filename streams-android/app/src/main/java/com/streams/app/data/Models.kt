@@ -215,8 +215,14 @@ data class Payment(
     val status: String,
     @SerialName("admin_note") val adminNote: String? = null,
     @SerialName("created_at") val createdAt: String,
-    /** "manual" (customer typed a UTR) or "upi_auto" (confirmed from the UPI app's response). */
-    val method: String = "manual",
+    /** "upi_manual" (UPI transfer + UTR) or "youpi" (gateway checkout). */
+    val method: String = "upi_manual",
+    @SerialName("order_id") val orderId: String? = null,
+    @SerialName("amount_paise") val amountPaise: Long? = null,
+    /** The customer's 12-digit UPI reference (unique). */
+    @SerialName("utr") val utrNumber: String? = null,
+    @SerialName("paid_at") val paidAt: String? = null,
+    @SerialName("approved_by") val approvedBy: String? = null,
     @SerialName("txn_id") val txnId: String? = null,
     @SerialName("attribution_source") val attributionSource: String? = null,
     @SerialName("reviewed_by") val reviewedBy: String? = null,
@@ -231,18 +237,19 @@ data class Payment(
     @SerialName("verification_source") val verificationSource: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
 ) {
-    /** Order status shown to people: CREATED · PENDING · SUCCESS · FAILED · CANCELLED (+ admin-review states). */
+    /** Order status shown to people. */
     val displayStatus: String
         get() = when (status) {
-            "initiated" -> if (clientStatus == null) "CREATED" else "PENDING"
-            "approved" -> "SUCCESS"
-            "failed" -> "FAILED"
-            "cancelled" -> "CANCELLED"
-            "pending" -> "AWAITING APPROVAL"
+            "pending" -> "WAITING FOR PAYMENT"
+            "submitted", "review" -> "VERIFYING"
+            "paid" -> "PAID"
             "rejected" -> "REJECTED"
-            "revoked" -> "REVOKED"
+            "expired" -> "EXPIRED"
             else -> status.uppercase()
         }
+
+    /** Amount in rupees (the server keeps paise). */
+    val rupees: Double? get() = amountPaise?.let { it / 100.0 } ?: amount
 
     private fun upiField(key: String) = upiResponse?.split('&')
         ?.firstOrNull { it.substringBefore('=').equals(key, ignoreCase = true) }
@@ -256,10 +263,10 @@ data class Payment(
             return if (code != null) "$st ($code)" else st
         }
 
-    val isAuto get() = method == "upi_auto"
+    val isAuto get() = method == "youpi"
     val bankVerified get() = bankCreditId != null
     /** The number to look for in the bank statement. */
-    val utr get() = txnId ?: reference
+    val utr get() = utrNumber ?: txnId ?: orderId ?: reference
 }
 
 @Serializable
@@ -303,9 +310,9 @@ data class AdminStats(
     @SerialName("exclusive_videos") val exclusiveVideos: Long = 0,
     @SerialName("total_views") val totalViews: Long = 0,
     @SerialName("preview_views") val previewViews: Long = 0,
-    @SerialName("paying_subscribers") val payingSubscribers: Long = 0,
-    @SerialName("expired_subscribers") val expiredSubscribers: Long = 0,
-    @SerialName("pending_payments") val pendingPayments: Long = 0,
+    @SerialName("paying_subscribers") val payingSubscribers: Long? = null,
+    @SerialName("expired_subscribers") val expiredSubscribers: Long? = null,
+    @SerialName("pending_payments") val pendingPayments: Long? = null,
 )
 
 // ---------------------------------------------------------------- acquisition attribution

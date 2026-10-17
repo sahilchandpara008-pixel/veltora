@@ -130,7 +130,9 @@ private fun NotFound(nav: NavController) {
 @Composable
 private fun AdminHome(nav: NavController, isOwner: Boolean) {
     val tabs = buildList {
-        add("Overview"); add("Attribution"); add("Payments"); add("Content"); add("Creators"); add("Reports"); add("Channels"); add("Campaigns")
+        add("Overview")
+        if (isOwner) { add("Attribution"); add("Payments") }   // payment data is for the owner only
+        add("Content"); add("Creators"); add("Reports"); add("Channels"); add("Campaigns")
         if (isOwner) { add("Team"); add("Settings") }
     }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -180,12 +182,13 @@ private fun OverviewTab() {
         is Load.Err -> ErrorState(s.message, load.reload)
         is Load.Ok -> {
             val st = s.data
+            // Subscriber and payment numbers come back only for the owner.
             val cards = listOf(
                 "Total videos" to st.totalVideos, "Exclusive videos" to st.exclusiveVideos,
                 "Total views" to st.totalViews, "Preview views" to st.previewViews,
                 "Paying subscribers" to st.payingSubscribers, "Expired subscribers" to st.expiredSubscribers,
                 "Payments waiting" to st.pendingPayments,
-            )
+            ).mapNotNull { (label, value) -> value?.let { label to it } }
             LazyVerticalGrid(
                 GridCells.Adaptive(150.dp),
                 contentPadding = PaddingValues(16.dp),
@@ -209,18 +212,26 @@ private fun OverviewTab() {
 private fun PaymentsTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Unpaid = order created, no verified payment yet. "Needs approval" = organic buyer paid
-    // (UPI app said SUCCESS) or a customer typed a UTR: the plan starts only when you approve.
+    // Needs action = UTR submitted or verified but waiting for the owner (organic accounts, amount mismatch).
     val filters = mapOf(
-        "All" to null, "Needs approval" to "pending", "Success" to "approved", "Unpaid" to "initiated", "Failed" to "failed",
-        "Cancelled" to "cancelled", "Rejected" to "rejected", "Revoked" to "revoked",
+        "Submitted" to "submitted", "Review" to "review", "All" to null, "Paid" to "paid",
+        "Pending" to "pending", "Expired" to "expired", "Rejected" to "rejected",
     )
-    var filter by rememberSaveable { mutableStateOf("All") }
+    var filter by rememberSaveable { mutableStateOf("Submitted") }
     var busyId by remember { mutableStateOf<String?>(null) }
     var rejecting by remember { mutableStateOf<Payment?>(null) }
-    var revoking by remember { mutableStateOf<Payment?>(null) }
-    var verifying by remember { mutableStateOf<Payment?>(null) }
     val load = rememberLoad(filter) { Repo.adminPayments(filters[filter]) }
+
+    fun approve(p: Payment) {
+        busyId = p.id
+        scope.launch {
+            runCatching { Repo.approvePayment(p.id) }
+                .onSuccess { Toast.makeText(context, "Approved — plan started", Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(context, it.friendly(), Toast.LENGTH_LONG).show() }
+            busyId = null
+            load.reload()
+        }
+    }
 
     Column {
         ChipRow(filters.keys.toList(), filter, { filter = it }, Modifier.padding(vertical = 10.dp))
@@ -236,112 +247,39 @@ private fun PaymentsTab() {
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface1).padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(p.userEmail ?: "—", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(formatPrice(p.amount), style = MaterialTheme.typography.titleMedium)
+                            Text(formatPrice(p.rupees), style = MaterialTheme.typography.titleMedium)
+                        }
+                        p.utrNumber?.let {
+                            Text("UTR $it", style = MaterialTheme.typography.titleMedium, color = Amber, modifier = Modifier.padding(top = 4.dp))
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${p.planName} · Order ${p.reference}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                            val ads = p.attributionSource == "meta"
-                            Text(
-                                if (ads) "ADS" else "ORGANIC",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (ads) Green else Amber,
-                                modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Surface2).padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
+                            Text("${p.planName} · ${p.orderId ?: p.reference}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                            Badge(if (p.attributionSource == "meta") "ADS" else "ORGANIC", if (p.attributionSource == "meta") Green else Amber)
+                            if (p.bankVerified) { Spacer(Modifier.width(6.dp)); Badge("BANK ✓", Green) }
                         }
                         Text(
                             p.displayStatus,
                             style = MaterialTheme.typography.labelLarge,
                             color = when (p.status) {
-                                "approved" -> Green
-                                "initiated", "pending" -> Amber
+                                "paid" -> Green
+                                "submitted", "review", "pending" -> Amber
                                 else -> MaterialTheme.colorScheme.error
                             },
                             modifier = Modifier.padding(top = 4.dp),
                         )
-                        p.txnId?.let { Text("UTR / provider txn: $it", style = MaterialTheme.typography.bodySmall, color = Amber) }
-                        p.upiStatusLabel?.let {
-                            Text("UPI app said: $it (not proof of payment)", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Text("Created ${formatDate(p.createdAt)}" + (p.updatedAt?.let { " · Updated ${formatDate(it)}" } ?: ""), style = MaterialTheme.typography.bodySmall)
-                        p.verifiedAt?.let {
-                            Text("Verified ${formatDate(it)} · ${p.verificationSource ?: "—"}", style = MaterialTheme.typography.bodySmall, color = Green)
-                        }
-                        if (p.status == "initiated") {
-                            Text("Waiting for verified payment — not activated", style = MaterialTheme.typography.bodySmall, color = Amber)
-                        }
-                        if (p.status == "rejected" || p.status == "revoked") p.adminNote?.let { Text("Note: $it", style = MaterialTheme.typography.bodySmall) }
-                        if (p.status == "pending") {
+                        p.adminNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        Text("Created ${formatDate(p.createdAt)}" + (p.paidAt?.let { " · Paid ${formatDate(it)}" } ?: ""), style = MaterialTheme.typography.bodySmall)
+                        p.approvedBy?.let { Text("By $it", style = MaterialTheme.typography.bodySmall) }
+                        if (p.status == "submitted" || p.status == "review") {
                             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                BusyButton("Approve", busyId == p.id, Modifier.weight(1f)) {
-                                    busyId = p.id
-                                    scope.launch {
-                                        runCatching { Repo.approvePayment(p.id) }
-                                            .onSuccess { Toast.makeText(context, "Approved — subscription extended", Toast.LENGTH_SHORT).show() }
-                                            .onFailure { Toast.makeText(context, it.friendly(), Toast.LENGTH_LONG).show() }
-                                        busyId = null
-                                        load.reload()
-                                    }
-                                }
+                                BusyButton("Approve", busyId == p.id, Modifier.weight(1f)) { approve(p) }
                                 OutlinedButton(onClick = { rejecting = p }, modifier = Modifier.weight(1f)) { Text("Reject") }
-                            }
-                        } else {
-                            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    p.reviewedBy?.let { "By $it" } ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                // Money never arrived? Take the plan days back.
-                                if (p.status == "approved") TextButton(onClick = { revoking = p }) { Text("Revoke") }
-                                // Money is in the bank statement but the order is still open: activate with the UTR as evidence.
-                                if (p.status in listOf("initiated", "failed", "cancelled")) {
-                                    TextButton(onClick = { verifying = p }) { Text("Mark as paid") }
-                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
-
-    verifying?.let { p ->
-        var utr by remember { mutableStateOf(p.txnId.orEmpty()) }
-        var err by remember { mutableStateOf<String?>(null) }
-        var saving by remember { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { verifying = null },
-            title = { Text("Mark as paid?") },
-            text = {
-                Column {
-                    Text("Order ${p.reference} · ${formatPrice(p.amount)} · ${p.userEmail ?: ""}", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Only do this if you can see exactly ${formatPrice(p.amount)} credited in your bank statement. " +
-                            "Type that credit's UTR — each UTR can be used once.",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                    OutlinedTextField(utr, { utr = it.trim() }, label = { Text("Bank UTR (12 digits)") }, singleLine = true, modifier = Modifier.padding(top = 8.dp))
-                    err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !saving, onClick = {
-                    saving = true
-                    scope.launch {
-                        runCatching { Repo.adminVerifyPayment(p.id, utr) }
-                            .onSuccess {
-                                verifying = null
-                                Toast.makeText(context, "Verified — plan activated", Toast.LENGTH_SHORT).show()
-                                load.reload()
-                            }
-                            .onFailure { err = it.friendly() }
-                        saving = false
-                    }
-                }) { Text("Activate plan") }
-            },
-            dismissButton = { TextButton(onClick = { verifying = null }) { Text("Cancel") } },
-        )
     }
 
     rejecting?.let { p ->
@@ -352,14 +290,13 @@ private fun PaymentsTab() {
             title = { Text("Reject payment?") },
             text = {
                 Column {
-                    Text("UTR ${p.reference} · ${formatPrice(p.amount)}", style = MaterialTheme.typography.bodyMedium)
-                    OutlinedTextField(note, { note = it }, label = { Text("Reason (shown to customer)") }, modifier = Modifier.padding(top = 8.dp))
+                    Text("UTR ${p.utrNumber ?: "—"} · ${formatPrice(p.rupees)}", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(note, { note = it }, label = { Text("Note (optional, shown to customer)") }, modifier = Modifier.padding(top = 8.dp))
                     err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (note.trim().length < 3) { err = "Please type a short reason"; return@TextButton }
                     scope.launch {
                         runCatching { Repo.rejectPayment(p.id, note) }
                             .onSuccess { rejecting = null; load.reload() }
@@ -370,36 +307,14 @@ private fun PaymentsTab() {
             dismissButton = { TextButton(onClick = { rejecting = null }) { Text("Cancel") } },
         )
     }
+}
 
-    revoking?.let { p ->
-        var note by remember { mutableStateOf("") }
-        var err by remember { mutableStateOf<String?>(null) }
-        AlertDialog(
-            onDismissRequest = { revoking = null },
-            title = { Text("Revoke payment?") },
-            text = {
-                Column {
-                    Text(
-                        "UTR ${p.utr} · ${formatPrice(p.amount)}\nThe plan's days are taken back from ${p.userEmail ?: "this customer"}.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(note, { note = it }, label = { Text("Reason (shown to customer)") }, modifier = Modifier.padding(top = 8.dp))
-                    err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (note.trim().length < 3) { err = "Please type a short reason"; return@TextButton }
-                    scope.launch {
-                        runCatching { Repo.revokePayment(p.id, note) }
-                            .onSuccess { revoking = null; load.reload() }
-                            .onFailure { err = it.friendly() }
-                    }
-                }) { Text("Revoke") }
-            },
-            dismissButton = { TextButton(onClick = { revoking = null }) { Text("Cancel") } },
-        )
-    }
+@Composable
+private fun Badge(text: String, color: Color) {
+    Text(
+        text, style = MaterialTheme.typography.labelSmall, color = color,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Surface2).padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
 // ------------------------------------------------------------------ Content

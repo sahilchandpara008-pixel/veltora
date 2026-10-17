@@ -97,12 +97,12 @@ object DebitSms {
                 sent.onSuccess { p ->
                     prefs.edit().remove(KEY_ORDER).apply()
                     UpiPay.result.value = p
-                    if (p.status == "approved" && p.reviewedBy?.contains("debit SMS") == true) {
+                    if (p.status == "paid") {
                         AppState.accessVersion.value++
                         MetaEvents.checkPurchases()
                         Toast.makeText(appContext, "Payment confirmed! Your subscription is now active.", Toast.LENGTH_LONG).show()
-                    } else if (p.status == "pending") {
-                        Toast.makeText(appContext, "Payment received. Your plan starts as soon as it's confirmed.", Toast.LENGTH_LONG).show()
+                    } else if (p.status == "submitted" || p.status == "review") {
+                        Toast.makeText(appContext, "Payment found — verifying. Your plan starts as soon as it's confirmed.", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }

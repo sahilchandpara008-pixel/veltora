@@ -71,12 +71,12 @@ object UpiPay {
                 sent.onSuccess { p ->
                     prefs.edit().remove(KEY_ORDER).remove(KEY_RESPONSE).apply()
                     result.value = p
-                    if (p.status == "approved") {
+                    if (p.status == "paid") {
                         AppState.accessVersion.value++
                         MetaEvents.checkPurchases()
                         Toast.makeText(appContext, "Payment successful! Your subscription is now active.", Toast.LENGTH_LONG).show()
-                    } else if (p.status == "pending") {
-                        Toast.makeText(appContext, "Payment received. Your plan starts as soon as it's confirmed.", Toast.LENGTH_LONG).show()
+                    } else if (p.status == "submitted" || p.status == "review") {
+                        Toast.makeText(appContext, "Payment submitted — verifying. Your plan starts as soon as it's confirmed.", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }

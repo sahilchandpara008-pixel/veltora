@@ -397,7 +397,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
     // the incoming bank credit of that amount activates it.
     var order by remember { mutableStateOf<Payment?>(null) }
     LaunchedEffect(d.openOrder?.id) { if (order == null && activated == null) order = d.openOrder }
-    val pending = submitted ?: d.payments.firstOrNull { it.status == "pending" }
+    val pending = submitted ?: d.payments.firstOrNull { it.status == "submitted" || it.status == "review" }
 
     // Final status always comes from the backend (check_payment_status), which activates a plan
     // only after trusted verification. We ask it every 5 s for the first 10 minutes; after that
@@ -405,11 +405,11 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
     var checking by remember { mutableStateOf(false) }
     fun applyBackendStatus(p: Payment) {
         when (p.status) {
-            "approved" -> { activated = p; order = null; noAnswer = false; busy = false; onSubmitted() }
-            "failed" -> { order = null; noAnswer = false; busy = false; error = "Payment failed. Please try again." }
-            "cancelled" -> { order = null; noAnswer = false; busy = false; error = "Payment cancelled. You can try again." }
-            // Paid; the plan starts when it's approved.
-            "pending" -> { submitted = p; order = null; noAnswer = false; busy = false }
+            "paid" -> { activated = p; order = null; noAnswer = false; busy = false; onSubmitted() }
+            "rejected" -> { order = null; noAnswer = false; busy = false; error = "This payment was rejected. Please contact support or try again." }
+            "expired" -> { order = null; noAnswer = false; busy = false; error = "This order expired. If you already paid, tap \"Paid but not active? Enter UTR\"." }
+            // UTR received; the plan starts once the payment is verified / approved.
+            "submitted", "review" -> { submitted = p; order = null; noAnswer = false; busy = false }
             else -> if (order?.id == p.id) order = p
         }
     }
@@ -428,7 +428,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
             delay(5000)
             val p = runCatching { Repo.checkPaymentStatus(o.id) }.getOrNull() ?: return@repeat
             applyBackendStatus(p)
-            if (p.status != "initiated") return@LaunchedEffect
+            if (p.status != "pending") return@LaunchedEffect
         }
     }
 
@@ -440,8 +440,8 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
         val p = upiResult ?: return@LaunchedEffect
         UpiPay.result.value = null
         busy = false
-        noAnswer = p.status == "initiated" && p.upiResponse?.startsWith("Status=NO_RESPONSE") == true
-        if (p.status == "initiated" && order == null) order = p
+        noAnswer = p.status == "pending" && p.upiResponse?.startsWith("Status=NO_RESPONSE") == true
+        if (p.status == "pending" && order == null) order = p
         applyBackendStatus(p)
     }
     fun openUpiApp(settings: PaymentSettings, o: Payment) {
@@ -461,7 +461,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                     Column {
                         Text("Payment successful! Your subscription is now active.", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${p.planName ?: "Plan"} · ${formatPrice(p.amount)} · UTR ${p.utr}\nEnjoy all Premium content right away.",
+                            "${p.planName ?: "Plan"} · ${formatPrice(p.rupees)} · UTR ${p.utr}\nEnjoy all Premium content right away.",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 4.dp),
                         )
@@ -475,11 +475,11 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                     Icon(Icons.Default.HourglassTop, null, tint = Amber)
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Payment received — waiting for approval", style = MaterialTheme.typography.titleSmall)
+                        Text("Payment submitted — verifying", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${pending.planName ?: "Plan"} · ${formatPrice(pending.amount)} · Ref ${pending.reference}" +
-                                (pending.txnId?.let { " · Txn $it" } ?: "") + "\n" +
-                                "Your plan starts as soon as it's approved (usually within a few hours).",
+                            "${pending.planName ?: "Plan"} · ${formatPrice(pending.rupees)} · Order ${pending.orderId ?: pending.reference}" +
+                                (pending.utrNumber?.let { " · UTR $it" } ?: "") + "\n" +
+                                "Your plan starts as soon as the payment is confirmed (usually within a few hours).",
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 4.dp),
                         )
@@ -624,7 +624,7 @@ private fun WaitingForPaymentCard(
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            Text("Order ${order.reference}", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+            Text("Order ${order.orderId ?: order.reference}", style = MaterialTheme.typography.bodySmall, color = TextMuted)
             if (order.clientStatus != null || noAnswer) {
                 Text(
                     "We're checking your payment. Your plan starts as soon as the payment is verified — " +
@@ -635,7 +635,7 @@ private fun WaitingForPaymentCard(
                 SecondaryButton(if (checking) "Checking…" else "Check payment status", onCheck, enabled = !checking)
             }
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(formatPrice(order.amount), fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Color.White)
+                Text(formatPrice(order.rupees), fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Color.White)
                 Spacer(Modifier.width(8.dp))
                 Text(order.planName ?: "", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
             }
@@ -713,23 +713,21 @@ private fun PlanCard(plan: Plan, selected: Boolean, popular: Boolean, onClick: (
 @Composable
 private fun PaymentRow(p: Payment) {
     val (label, color) = when (p.status) {
-        "approved" -> "Success" to Green
+        "paid" -> "Paid" to Green
         "rejected" -> "Rejected" to MaterialTheme.colorScheme.error
-        "revoked" -> "Cancelled" to MaterialTheme.colorScheme.error
-        "failed" -> "Failed" to MaterialTheme.colorScheme.error
-        "cancelled" -> "Cancelled" to TextMuted
-        "pending" -> "In review" to Amber
-        else -> "Pending" to Amber
+        "expired" -> "Expired" to TextMuted
+        "submitted", "review" -> "Verifying" to Amber
+        else -> "Waiting for payment" to Amber
     }
     Row(
         Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(Surface1).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("${p.planName ?: "Plan"} · ${formatPrice(p.amount)}", style = MaterialTheme.typography.titleSmall)
-            Text("${formatDate(p.createdAt)} · Order ${p.reference}", style = MaterialTheme.typography.bodySmall)
-            p.txnId?.let { Text("UTR $it", style = MaterialTheme.typography.bodySmall) }
-            p.adminNote?.takeIf { p.status == "rejected" || p.status == "revoked" }?.let {
+            Text("${p.planName ?: "Plan"} · ${formatPrice(p.rupees)}", style = MaterialTheme.typography.titleSmall)
+            Text("${formatDate(p.createdAt)} · Order ${p.orderId ?: p.reference}", style = MaterialTheme.typography.bodySmall)
+            p.utrNumber?.let { Text("UTR $it", style = MaterialTheme.typography.bodySmall) }
+            p.adminNote?.takeIf { p.status == "rejected" }?.let {
                 Text("Reason: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
@@ -742,16 +740,15 @@ private fun PaymentRow(p: Payment) {
     }
 }
 
-/** upi://pay?... pre-filled with the order's exact amount; the note carries our order reference. */
+/** upi://pay?pa=…&pn=…&am=…&cu=INR&tn=ORDER_ID — the order's exact amount; the note carries our order id. */
 private fun upiIntent(s: PaymentSettings, order: Payment): Intent {
     val uri = Uri.Builder()
         .scheme("upi").authority("pay")
         .appendQueryParameter("pa", s.upiId)
         .appendQueryParameter("pn", s.payeeName)
-        .appendQueryParameter("tr", order.reference) // backend-generated order id, echoed back as txnRef
-        .appendQueryParameter("am", "%.2f".format(java.util.Locale.US, order.amount ?: 0.0))
+        .appendQueryParameter("am", "%.2f".format(java.util.Locale.US, order.rupees ?: 0.0))
         .appendQueryParameter("cu", "INR")
-        .appendQueryParameter("tn", "Veltora ${order.reference}")
+        .appendQueryParameter("tn", order.orderId ?: order.reference)
         .build()
     return Intent(Intent.ACTION_VIEW, uri)
 }

@@ -191,7 +191,7 @@ object Repo {
     suspend fun myPayments(): List<Payment> {
         val uid = supabase.auth.currentUserOrNull()?.id ?: return emptyList()
         return supabase.from("payments").select {
-            filter { eq("user_id", uid); neq("status", "initiated") }
+            filter { eq("user_id", uid); neq("status", "pending") }
             order("created_at", Order.DESCENDING)
         }.decodeList()
     }
@@ -213,19 +213,12 @@ object Repo {
     /** My unfinished automatic order from the last hour, if any (so waiting survives an app restart). */
     suspend fun myOpenOrder(): Payment? {
         val uid = supabase.auth.currentUserOrNull()?.id ?: return null
-        val since = java.time.OffsetDateTime.now().minusHours(24).toString()   // open orders stay recoverable for 24 h
+        val since = java.time.OffsetDateTime.now().minusMinutes(30).toString()   // unpaid orders expire after 30 minutes
         return supabase.from("payments").select {
-            filter { eq("user_id", uid); eq("status", "initiated"); gt("created_at", since) }
+            filter { eq("user_id", uid); eq("status", "pending"); gt("created_at", since) }
             order("created_at", Order.DESCENDING)
             limit(1)
         }.decodeList<Payment>().firstOrNull()
-    }
-
-    /** Admin saw this order's money in the bank statement: activates it with that UTR as evidence. */
-    suspend fun adminVerifyPayment(paymentId: String, utr: String) {
-        supabase.postgrest.rpc("admin_verify_payment", buildJsonObject {
-            put("p_payment_id", paymentId); put("p_utr", utr)
-        })
     }
 
     /**
@@ -324,12 +317,6 @@ object Repo {
 
     suspend fun rejectPayment(id: String, note: String) {
         supabase.postgrest.rpc("reject_payment", buildJsonObject {
-            put("p_payment_id", id); put("p_note", note)
-        })
-    }
-
-    suspend fun revokePayment(id: String, note: String) {
-        supabase.postgrest.rpc("revoke_payment", buildJsonObject {
             put("p_payment_id", id); put("p_note", note)
         })
     }

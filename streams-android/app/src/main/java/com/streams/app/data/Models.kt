@@ -70,6 +70,17 @@ data class MemberCount(
     val members: Long = 0,
 )
 
+/** Row of channel_directory(): numbers for the Channels list. */
+@Serializable
+data class ChannelStats(
+    @SerialName("channel_id") val channelId: String,
+    val members: Long = 0,
+    val videos: Long = 0,
+    val views: Long = 0,
+    @SerialName("last_upload_at") val lastUploadAt: String? = null,
+    val joined: Boolean = false,
+)
+
 /** Reasons for reporting a creator's channel or video (content_reports.reason). */
 object ReportReason {
     val all = listOf(

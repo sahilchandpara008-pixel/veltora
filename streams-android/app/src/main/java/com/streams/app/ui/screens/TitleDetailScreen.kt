@@ -158,26 +158,34 @@ fun TitleDetailScreen(nav: NavController, titleId: String) {
                                 Spacer(Modifier.height(10.dp))
                                 SecondaryButton("Watch trailer", { nav.navigate(Routes.player(t.id, "trailer")) }, icon = Icons.Default.Theaters)
                             }
+                        } else if (freeMode) {
+                            PrimaryButton("Sign in to watch", { nav.navigate("auth") }, icon = Icons.Default.PlayArrow)
                         } else {
+                            // One Play button for everyone: without a plan it plays the trailer (or a
+                            // 30-second preview); once the plan is active the same button plays the full video.
                             val mode = lockedMode(t)
-                            if (freeMode) {
-                                PrimaryButton("Sign in to watch", { nav.navigate("auth") }, icon = Icons.Default.PlayArrow)
-                            } else PrimaryButton(
-                                "Subscribe to watch",
-                                { nav.navigate("profile") { launchSingleTop = true } },
-                                icon = Icons.Default.WorkspacePremium,
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            SecondaryButton(
-                                if (mode == "trailer") "Watch trailer" else "Watch 30-sec preview",
+                            PrimaryButton(
+                                "Play",
                                 { nav.navigate(Routes.player(t.id, mode, firstEp?.id)) },
                                 icon = Icons.Default.PlayArrow,
                                 enabled = mode == "trailer" || canPlayMain,
                             )
-                            if (!freeMode) {
-                                Spacer(Modifier.height(12.dp))
-                                PremiumNote()
-                            }
+                            Text(
+                                if (mode == "trailer") "Plays the trailer. Subscribe to watch the full ${if (t.isSeries) "series" else "movie"}."
+                                else "Plays a 30-second preview. Subscribe to watch it all.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            SecondaryButton(
+                                "Subscribe to watch full",
+                                { nav.navigate("profile") { launchSingleTop = true } },
+                                icon = Icons.Default.WorkspacePremium,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            PremiumNote()
                         }
 
                         if (t.description.isNotBlank()) {

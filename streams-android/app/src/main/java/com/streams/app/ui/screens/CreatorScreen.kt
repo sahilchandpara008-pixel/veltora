@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -117,6 +118,10 @@ private const val MAX_VIDEO_BYTES = 50L * 1024 * 1024
  * who sees it. Owners change the channel photo/details and upload, edit or delete their videos
  * (each upload is reviewed by the admin before it goes live).
  */
+private data class CreatorData(
+    val channels: List<Channel>, val uploads: List<Title>, val members: Map<String, Long>, val canCreate: Boolean,
+)
+
 @Composable
 fun CreatorScreen(nav: NavController) {
     var version by remember { mutableStateOf(0) }
@@ -125,7 +130,8 @@ fun CreatorScreen(nav: NavController) {
             val c = async { Repo.myChannels() }
             val t = async { Repo.myUploads() }
             val m = async { Repo.memberCounts() }
-            Triple(c.await(), t.await(), m.await())
+            val ok = async { Repo.canCreate() }
+            CreatorData(c.await(), t.await(), m.await(), ok.await())
         }
     }
     var editChannel by remember { mutableStateOf<Channel?>(null) }
@@ -146,18 +152,31 @@ fun CreatorScreen(nav: NavController) {
             Load.Loading -> Loading()
             is Load.Err -> ErrorState(s.message, load.reload)
             is Load.Ok -> {
-                val (channels, uploads, members) = s.data
+                val (channels, uploads, members, canCreate) = s.data
                 LazyColumn(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     item {
-                        Text(
-                            "Create your own channel and share videos. New channels are checked by our team; once approved, your videos go live right away.",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        PrimaryButton("Create channel", { newChannel = true }, icon = Icons.Default.Add)
+                        if (canCreate) {
+                            Text(
+                                "Create your own channel and share videos. New channels are checked by our team; once approved, your videos go live right away.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            PrimaryButton("Create channel", { newChannel = true }, icon = Icons.Default.Add)
+                        } else {
+                            Text(
+                                "Channels and uploads are for members with an active plan. Buy a plan to create your channel and stream your videos.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            PrimaryButton(
+                                "See plans",
+                                { nav.navigate("profile") { launchSingleTop = true } },
+                                icon = Icons.Default.WorkspacePremium,
+                            )
+                        }
                     }
                     if (channels.isEmpty()) {
                         item { EmptyState(title = "No channels yet", message = "Create a channel to start uploading.", icon = Icons.Default.VideoLibrary) }
@@ -167,7 +186,10 @@ fun CreatorScreen(nav: NavController) {
                             ch, uploads.filter { it.channelId == ch.id }, members[ch.id] ?: 0L,
                             onEdit = { editChannel = ch },
                             onDelete = { deleteChannel = ch },
-                            onUpload = { videoForm = ch to null },
+                            onUpload = {
+                                if (canCreate) videoForm = ch to null
+                                else Toast.makeText(context, "Your plan has ended. Renew it to upload videos.", Toast.LENGTH_LONG).show()
+                            },
                             onPlay = { t -> nav.navigate(Routes.player(t.id, "full")) },
                             onEditVideo = { t -> videoForm = ch to t },
                             onDeleteVideo = { t -> deleteVideo = t },

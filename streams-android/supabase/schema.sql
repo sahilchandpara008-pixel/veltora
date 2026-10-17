@@ -2207,6 +2207,7 @@ returns public.channels language plpgsql security definer set search_path = publ
 declare uid uuid := auth.uid(); n text := btrim(coalesce(p_name, '')); c public.channels;
 begin
   if uid is null then raise exception 'Sign in to create a channel'; end if;
+  if not public.can_create() then raise exception 'Buy a plan to create a channel'; end if;
   if length(n) < 2 or length(n) > 60 then raise exception 'Channel name must be 2-60 characters'; end if;
   if length(coalesce(p_description, '')) > 1000 then raise exception 'Description is too long'; end if;
   if not public.is_own_creator_path(nullif(p_avatar_path, '')) then raise exception 'Invalid photo'; end if;
@@ -2580,6 +2581,7 @@ returns public.titles language plpgsql security definer set search_path = public
 declare uid uuid := auth.uid(); n text := btrim(coalesce(p_name, '')); t public.titles; ch public.channels;
 begin
   if uid is null then raise exception 'Sign in first'; end if;
+  if not public.can_create() then raise exception 'Your plan has ended. Renew it to upload videos'; end if;
   select * into ch from public.channels where id = p_channel_id and owner_id = uid;
   if not found then raise exception 'Channel not found'; end if;
   if ch.status <> 'approved' then raise exception 'Your channel is not approved yet'; end if;
@@ -4439,3 +4441,37 @@ do $$ begin
 exception when undefined_function or invalid_schema_name then
   raise notice 'pg_cron not available here';
 end $$;
+
+-- ============================================================ 36. creators need a plan; channel directory
+-- Only admins and users with an active plan can create channels and upload videos.
+create or replace function public.can_create()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_admin() or public.has_active_subscription()
+$$;
+grant execute on function public.can_create() to anon, authenticated;
+
+-- request_channel() and creator_save_title() (above) check can_create() right after sign-in.
+
+-- Used by the storage policy "creators upload videos": video uploads also need an active plan (or admin).
+create or replace function public.has_approved_channel()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.channels where owner_id = auth.uid() and status = 'approved')
+     and public.can_create()
+$$;
+
+-- Channel list with counts, for the Channels screen (only channels this viewer may see).
+create or replace function public.channel_directory()
+returns table(channel_id uuid, members bigint, videos bigint, views bigint, last_upload_at timestamptz, joined boolean)
+language sql stable security definer set search_path = public as $$
+  with m as (select public.viewer_is_meta() as meta)
+  select c.id,
+         (select count(*) from public.channel_members cm where cm.channel_id = c.id),
+         (select count(*) from public.titles t, m where t.channel_id = c.id and public.title_open(t, m.meta)
+            and (t.tier <> 'hidden_premium' or public.has_active_subscription())),
+         (select coalesce(sum(t.view_count), 0)::bigint from public.titles t, m where t.channel_id = c.id and public.title_open(t, m.meta)),
+         (select max(t.created_at) from public.titles t, m where t.channel_id = c.id and public.title_open(t, m.meta)),
+         exists (select 1 from public.channel_members cm where cm.channel_id = c.id and cm.user_id = auth.uid())
+    from public.channels c, m
+   where public.channel_open(c.id, m.meta)
+$$;
+grant execute on function public.channel_directory() to anon, authenticated;

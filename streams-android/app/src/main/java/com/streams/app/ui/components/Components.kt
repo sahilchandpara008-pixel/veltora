@@ -1,5 +1,9 @@
 package com.streams.app.ui.components
 
+import androidx.compose.material3.ButtonDefaults
+
+import androidx.compose.foundation.BorderStroke
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -268,6 +272,8 @@ fun SecondaryButton(
         enabled = enabled,
         shape = MaterialTheme.shapes.small,
         contentPadding = PaddingValues(horizontal = 16.dp),
+        border = BorderStroke(1.dp, if (enabled) Outline else Outline.copy(alpha = 0.5f)),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = Surface2.copy(alpha = 0.6f), contentColor = Color.White),
         modifier = modifier.height(50.dp),
     ) {
         if (icon != null) {

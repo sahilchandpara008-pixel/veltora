@@ -618,6 +618,14 @@ object Repo {
         runCatching { supabase.postgrest.rpc("channel_member_counts").decodeList<MemberCount>() }
             .getOrDefault(emptyList()).associate { it.channelId to it.members }
 
+    /** Member / video / view counts per channel (only channels this viewer may see). */
+    suspend fun channelDirectory(): Map<String, ChannelStats> =
+        supabase.postgrest.rpc("channel_directory").decodeList<ChannelStats>().associateBy { it.channelId }
+
+    /** True for admins and users with an active plan: only they may create channels and upload. */
+    suspend fun canCreate(): Boolean =
+        signedIn() && runCatching { supabase.postgrest.rpc("can_create").decodeAs<Boolean>() }.getOrDefault(false)
+
     /** Channels the signed-in user joined (empty for guests). */
     suspend fun joinedChannelIds(): Set<String> {
         if (!signedIn()) return emptySet()

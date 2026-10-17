@@ -5,6 +5,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.SolidColor
+import com.streams.app.data.ChannelStats
+import com.streams.app.ui.theme.TextFaint
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -76,7 +89,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-private data class ChannelsData(val channels: List<Channel>, val titles: List<Title>, val members: Map<String, Long>)
+private data class ChannelsData(val channels: List<Channel>, val stats: Map<String, ChannelStats>)
+
+private const val TRENDING = "Trending"
+private const val LATEST = "Latest"
+private const val MOST_WATCHED = "Most watched"
 
 @Composable
 fun ChannelsScreen(nav: NavController) {
@@ -85,58 +102,81 @@ fun ChannelsScreen(nav: NavController) {
     val load = rememberLoad(access) {
         coroutineScope {
             val c = async { Repo.channels() }
-            val t = async { Repo.titles() }
-            val m = async { Repo.memberCounts() }
-            ChannelsData(c.await(), t.await(), m.await())
+            val st = async { runCatching { Repo.channelDirectory() }.getOrDefault(emptyMap()) }
+            ChannelsData(c.await(), st.await())
         }
     }
-    var filter by remember { mutableStateOf("All channels") }
+    var tab by rememberSaveable { mutableIntStateOf(0) }       // 0 = Discover, 1 = Joined
+    var sort by rememberSaveable { mutableStateOf(TRENDING) }
+    var query by rememberSaveable { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
         Text(
             "Channels",
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp),
+            modifier = Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         )
-        ChipRow(
-            listOf("All channels", "Joined", "Has free titles"),
-            filter, { filter = it },
-            Modifier.padding(vertical = 10.dp),
-        )
+        SearchField(query, { query = it }, Modifier.padding(horizontal = 16.dp))
+        PrimaryTabRow(
+            selectedTabIndex = tab,
+            containerColor = Color.Transparent,
+            contentColor = Color.White,
+            divider = { HorizontalDivider(color = Outline) },
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            listOf("Discover", "Joined").forEachIndexed { i, label ->
+                Tab(
+                    selected = tab == i, onClick = { tab = i },
+                    selectedContentColor = Color.White, unselectedContentColor = TextMuted,
+                    text = { Text(label, style = MaterialTheme.typography.titleSmall) },
+                )
+            }
+        }
+        ChipRow(listOf(TRENDING, LATEST, MOST_WATCHED), sort, { sort = it }, Modifier.padding(vertical = 12.dp))
         when (val s = load.state) {
             Load.Loading -> Loading()
             is Load.Err -> ErrorState(s.message, load.reload)
             is Load.Ok -> {
                 val d = s.data
-                val byChannel = d.titles.groupBy { it.channelId }
-                val shown = d.channels.filter { ch ->
-                    when (filter) {
-                        "Joined" -> ch.id in joined
-                        "Has free titles" -> byChannel[ch.id].orEmpty().any { it.tier == Tier.FREE }
-                        else -> true
+                val q = query.trim()
+                val shown = d.channels
+                    .filter { tab == 0 || it.id in joined }
+                    .filter { q.isEmpty() || it.name.contains(q, true) || it.description.contains(q, true) }
+                    .let { list ->
+                        fun st(c: Channel) = d.stats[c.id] ?: ChannelStats(c.id)
+                        when (sort) {
+                            LATEST -> list.sortedByDescending { st(it).lastUploadAt ?: "" }
+                            MOST_WATCHED -> list.sortedByDescending { st(it).views }
+                            else -> list.sortedWith(compareByDescending<Channel> { st(it).members }.thenByDescending { st(it).views })
+                        }
                     }
-                }
                 if (shown.isEmpty()) {
                     EmptyState(
                         title = when {
                             d.channels.isEmpty() -> "No channels yet"
-                            filter == "Joined" -> "You haven't joined a channel yet"
+                            q.isNotEmpty() -> "No channels found"
+                            tab == 1 -> "You haven't joined a channel yet"
                             else -> "Nothing here"
                         },
                         message = when {
                             d.channels.isEmpty() -> "Channels will appear here soon."
-                            filter == "Joined" -> "Tap Join on a channel to follow it."
+                            q.isNotEmpty() -> "Try a different name."
+                            tab == 1 -> "Tap Join on a channel to follow it."
                             else -> "No channels match this filter."
                         },
                         icon = Icons.Default.LiveTv,
                     )
                 }
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
+                LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                     items(shown, key = { it.id }) { ch ->
-                        ChannelCard(ch, byChannel[ch.id].orEmpty(), d.members[ch.id] ?: 0, nav) { nav.navigate(Routes.channel(ch.id)) }
+                        val st = d.stats[ch.id] ?: ChannelStats(ch.id)
+                        // Keep the member count in step with the Join button without reloading.
+                        val members = st.members + when {
+                            ch.id in joined && !st.joined -> 1
+                            ch.id !in joined && st.joined -> -1
+                            else -> 0
+                        }
+                        ChannelRow(ch, members, st.videos.toInt(), nav) { nav.navigate(Routes.channel(ch.id)) }
                     }
                 }
             }
@@ -145,48 +185,86 @@ fun ChannelsScreen(nav: NavController) {
 }
 
 @Composable
-private fun ChannelCard(ch: Channel, titles: List<Title>, members: Long, nav: NavController, onClick: () -> Unit) {
+private fun SearchField(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .height(46.dp)
+            .clip(RoundedCornerShape(50))
             .background(Surface1)
-            .clickable(onClick = onClick)
-            .padding(14.dp),
+            .border(1.dp, Outline, RoundedCornerShape(50))
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ChannelAvatar(ch.name, ch.avatarPath, 56)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    ch.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (ch.isPremium) {
-                    Spacer(Modifier.width(8.dp))
-                    TierBadge(Tier.PREMIUM)
-                }
-            }
-            if (ch.description.isNotBlank()) {
-                Text(ch.description, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(
-                channelStats(members, titles.size),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 2.dp),
+        Icon(Icons.Default.Search, null, tint = TextMuted, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f)) {
+            if (value.isEmpty()) Text("Search channels", style = MaterialTheme.typography.bodyMedium, color = TextFaint)
+            BasicTextField(
+                value, onChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+                cursorBrush = SolidColor(Red),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
-        Spacer(Modifier.width(8.dp))
-        JoinButton(ch.id, nav, compact = true)
+        if (value.isNotEmpty()) {
+            Icon(
+                Icons.Default.Close, "Clear", tint = TextMuted,
+                modifier = Modifier.size(20.dp).clip(CircleShape).clickable { onChange("") },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChannelRow(ch: Channel, members: Long, videos: Int, nav: NavController, onClick: () -> Unit) {
+    Column {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ChannelAvatar(ch.name, ch.avatarPath, 52)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        ch.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (ch.isPremium) {
+                        Spacer(Modifier.width(8.dp))
+                        TierBadge(Tier.PREMIUM)
+                    }
+                }
+                Text(
+                    channelStats(members, videos),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            JoinButton(ch.id, nav, compact = true)
+        }
+        HorizontalDivider(color = Outline.copy(alpha = 0.6f), modifier = Modifier.padding(start = 82.dp))
     }
 }
 
 fun channelStats(members: Long, videos: Int) =
-    "$members member${if (members == 1L) "" else "s"} · $videos video${if (videos == 1) "" else "s"}"
+    "${compactCount(members)} member${if (members == 1L) "" else "s"}  •  $videos video${if (videos == 1) "" else "s"}"
+
+/** 950 -> "950", 1200 -> "1.2K", 3400000 -> "3.4M". */
+fun compactCount(n: Long): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0).replace(".0M", "M")
+    n >= 1_000 -> "%.1fK".format(n / 1_000.0).replace(".0K", "K")
+    else -> n.toString()
+}
 
 /**
  * Join / Joined toggle. Joining needs an account: guests are sent to sign in first.

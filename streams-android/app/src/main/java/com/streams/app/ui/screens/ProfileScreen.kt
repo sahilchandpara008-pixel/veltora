@@ -200,7 +200,7 @@ fun ProfileScreen(nav: NavController) {
                     MenuRow(
                         icon = Icons.Default.VideoLibrary,
                         title = "My channels",
-                        subtitle = "Create a channel and upload your videos",
+                        subtitle = "Create a channel and stream your videos · needs a plan",
                         onClick = { nav.navigate("creator") },
                     )
                 }

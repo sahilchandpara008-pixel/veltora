@@ -1,5 +1,5 @@
 // Creates a 'pending' order for a plan. The price always comes from the database, never the client.
-// POST { plan_id }  (signed in)  ->  { order, checkout: { upi_vpa, payee_name, mode, youpi_base_url, youpi_public_key }, upi_link }
+// POST { plan_id }  (signed in)  ->  { order, checkout: { upi_vpa, payee_name }, upi_link }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
   const amount = (order.amount_paise / 100).toFixed(2);
   const upi = checkout?.upi_vpa
     ? `upi://pay?pa=${encodeURIComponent(checkout.upi_vpa)}&pn=${encodeURIComponent(checkout.payee_name ?? "Veltora")}` +
-      `&am=${amount}&cu=INR&tn=${encodeURIComponent(order.order_id)}`
+      `&tr=${encodeURIComponent(order.order_id)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`Veltora ${order.order_id}`)}`
     : null;
   return json({
     order: {

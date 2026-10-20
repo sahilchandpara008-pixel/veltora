@@ -1,4 +1,4 @@
-// Manual mode: the customer reports the 12-digit UTR of their UPI payment.
+// The customer reports the 12-digit UTR of their UPI payment.
 // POST { order_id, utr }  (signed in)  ->  { order }   status becomes 'submitted' (or 'paid'/'review' when
 // the owner's bank credit SMS with the same UTR already arrived).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";

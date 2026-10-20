@@ -227,7 +227,7 @@ data class Payment(
     val status: String,
     @SerialName("admin_note") val adminNote: String? = null,
     @SerialName("created_at") val createdAt: String,
-    /** "upi_manual" (UPI transfer + UTR) or "youpi" (gateway checkout). */
+    /** Always "upi_manual" (UPI payment confirmed by the UPI app, bank SMS or UTR). */
     val method: String = "upi_manual",
     @SerialName("order_id") val orderId: String? = null,
     @SerialName("amount_paise") val amountPaise: Long? = null,
@@ -279,7 +279,6 @@ data class Payment(
             return if (code != null) "$st ($code)" else st
         }
 
-    val isAuto get() = method == "youpi"
     val bankVerified get() = bankCreditId != null
     /** The number to look for in the bank statement. */
     val utr get() = utrNumber ?: txnId ?: orderId ?: reference

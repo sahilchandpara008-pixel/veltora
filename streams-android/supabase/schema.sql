@@ -4841,3 +4841,17 @@ end $$;
 
 -- cancel_upi_payment -> 'cancelled'; report_debit_sms also accepts failed / cancelled orders
 -- (same bodies as before with those status lists; applied as migration upi_intent_v2_4).
+
+-- ============================================================ 38. YouPI removed: UPI + bank SMS / UTR only
+-- get_checkout_settings() returns only { upi_vpa, payee_name }; create_order / payments_before_insert
+-- always use method 'upi_manual'; payment_settings_guard only checks the UPI ID.
+-- gateway_payment_success / admin_set_setup_checklist now just raise 'YouPI was removed' (no grants).
+-- Bank SMS auto-verify enabled with sender filter 'BANDHN' (the forwarder link is created in Admin).
+-- Optional final cleanup (run in the Supabase SQL editor):
+--   drop function if exists public.gateway_payment_success(text, integer, text, text);
+--   drop function if exists public.admin_set_setup_checklist(jsonb);
+--   alter table public.payment_settings drop column if exists mode, drop column if exists youpi_base_url,
+--     drop column if exists youpi_public_key, drop column if exists setup_checklist,
+--     drop column if exists health_ok_at, drop column if exists health_report;
+--   alter table public.payments drop constraint if exists payments_method_check;
+--   alter table public.payments add constraint payments_method_check check (method = 'upi_manual');

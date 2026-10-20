@@ -3470,11 +3470,11 @@ revoke execute on function public.ingest_bank_sms(text, text, text) from public,
 grant execute on function public.ingest_bank_sms(text, text, text) to service_role;
 
 -- =====================================================================
--- 35. UPI SUBSCRIPTION SYSTEM (Manual + Auto / YouPI-PG)
+-- 35. UPI SUBSCRIPTION SYSTEM (UPI, verified by bank SMS / UTR / owner)
 --     Premium only after a verified payment or an owner's approval.
 --     Payment statuses: pending -> submitted (UTR) -> paid | rejected | expired | review.
---     Ads (Meta) accounts are activated as soon as a payment is verified (gateway webhook or
---     bank credit SMS); organic accounts always wait for the owner's approval ('review').
+--     Ads (Meta) accounts are activated as soon as a payment is verified (bank credit SMS or
+--     the UPI app's checked answer); organic accounts always wait for the owner's approval ('review').
 --     Payment pages and data are for the owner only (managers never see them).
 -- =====================================================================
 
@@ -3483,12 +3483,6 @@ create table if not exists public.payment_settings (
   id               int primary key default 1 check (id = 1),
   upi_vpa          text,
   payee_name       text,
-  mode             text not null default 'manual' check (mode in ('manual', 'auto')),
-  youpi_base_url   text,
-  youpi_public_key text,
-  setup_checklist  jsonb not null default '{}'::jsonb,
-  health_ok_at     timestamptz,
-  health_report    jsonb,
   updated_at       timestamptz not null default now()
 );
 alter table public.payment_settings enable row level security;
@@ -3504,30 +3498,14 @@ select 1, a.upi_id, coalesce(a.payee_name, 'Veltora') from public.app_settings a
 on conflict (id) do nothing;
 insert into public.payment_settings (id) values (1) on conflict (id) do nothing;
 
--- Auto mode only after a passing health check for the same gateway URL (last 30 minutes).
+-- Normalise the UPI ID and payee name.
 create or replace function public.payment_settings_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  new.upi_vpa          := nullif(btrim(coalesce(new.upi_vpa, '')), '');
-  new.payee_name       := nullif(btrim(coalesce(new.payee_name, '')), '');
-  new.youpi_base_url   := nullif(regexp_replace(btrim(coalesce(new.youpi_base_url, '')), '/+$', ''), '');
-  new.youpi_public_key := nullif(btrim(coalesce(new.youpi_public_key, '')), '');
-  if new.youpi_base_url is not null and new.youpi_base_url !~ '^https://' then
-    raise exception 'YouPI URL must start with https://';
-  end if;
+  new.upi_vpa    := nullif(btrim(coalesce(new.upi_vpa, '')), '');
+  new.payee_name := nullif(btrim(coalesce(new.payee_name, '')), '');
   if new.upi_vpa is not null and new.upi_vpa !~ '^[A-Za-z0-9._-]{2,}@[A-Za-z0-9.-]{2,}$' then
     raise exception 'That does not look like a UPI ID (name@bank)';
-  end if;
-  if new.youpi_base_url is distinct from old.youpi_base_url or new.youpi_public_key is distinct from old.youpi_public_key then
-    new.health_ok_at := null;
-  end if;
-  if new.mode = 'auto' and (old.mode <> 'auto' or new.youpi_base_url is distinct from old.youpi_base_url
-                            or new.youpi_public_key is distinct from old.youpi_public_key) then
-    if new.youpi_base_url is null or new.youpi_public_key is null
-       or old.health_ok_at is null or old.health_ok_at < now() - interval '30 minutes'
-       or (old.health_report ->> 'base_url') is distinct from new.youpi_base_url then
-      raise exception 'Run "Test connection" and make sure every check passes before switching to Auto';
-    end if;
   end if;
   new.updated_at := now();
   return new;
@@ -3556,8 +3534,7 @@ create or replace trigger app_settings_upi_sync after update of upi_id, payee_na
 -- Public checkout settings (no secrets live in this table).
 create or replace function public.get_checkout_settings()
 returns json language sql stable security definer set search_path = public as $$
-  select json_build_object('upi_vpa', upi_vpa, 'payee_name', coalesce(payee_name, 'Veltora'), 'mode', mode,
-                           'youpi_base_url', youpi_base_url, 'youpi_public_key', youpi_public_key)
+  select json_build_object('upi_vpa', upi_vpa, 'payee_name', coalesce(payee_name, 'Veltora'))
     from public.payment_settings where id = 1
 $$;
 grant execute on function public.get_checkout_settings() to anon, authenticated;
@@ -3634,14 +3611,14 @@ update public.payments set
              else status end,
   paid_at     = case when status = 'approved' then coalesce(verified_at, reviewed_at, updated_at) else paid_at end,
   approved_by = case when status = 'approved' then reviewed_by else approved_by end,
-  method      = case when method in ('upi_manual', 'youpi') then method else 'upi_manual' end
- where status in ('initiated', 'pending', 'approved', 'revoked', 'failed', 'cancelled') or method not in ('upi_manual', 'youpi');
+  method      = 'upi_manual'
+ where status in ('initiated', 'pending', 'approved', 'revoked', 'failed', 'cancelled') or method <> 'upi_manual';
 
 alter table public.payments alter column amount_paise set not null;
 alter table public.payments alter column order_id set not null;
 alter table public.payments add constraint payments_status_check
   check (status in ('pending', 'submitted', 'paid', 'rejected', 'expired', 'review'));
-alter table public.payments add constraint payments_method_check check (method in ('upi_manual', 'youpi'));
+alter table public.payments add constraint payments_method_check check (method = 'upi_manual');
 create unique index if not exists payments_order_id_key on public.payments (order_id);
 create unique index if not exists payments_utr_key on public.payments (utr) where utr is not null;
 create index if not exists payments_status_created_idx on public.payments (status, created_at desc);
@@ -3687,7 +3664,7 @@ begin
   new.order_id     := public.new_order_id();
   new.reference    := new.order_id;
   new.status       := 'pending';
-  new.method       := case when new.method = 'youpi' then 'youpi' else 'upi_manual' end;
+  new.method       := 'upi_manual';
   new.utr := null; new.txn_id := null; new.gateway_payment_id := null; new.upi_response := null; new.client_status := null;
   new.paid_at := null; new.approved_by := null; new.admin_note := null; new.reviewed_at := null; new.reviewed_by := null;
   new.verified_at := null; new.verification_source := null; new.bank_credit_id := null;
@@ -3774,13 +3751,12 @@ revoke execute on function public.verified_payment(uuid, text, text) from public
 -- ---------- customer functions ----------
 create or replace function public.create_order(p_plan_id uuid)
 returns public.payments language plpgsql security definer set search_path = public as $$
-declare r public.payments; m text; price int;
+declare r public.payments; price int;
 begin
   if auth.uid() is null then raise exception 'Please sign in first'; end if;
   select price_paise into price from public.subscription_plans where id = p_plan_id and active;
   if price is null then raise exception 'This plan is not available'; end if;
-  select mode into m from public.payment_settings where id = 1;
-  if (select upi_vpa from public.payment_settings where id = 1) is null and coalesce(m, 'manual') = 'manual' then
+  if (select upi_vpa from public.payment_settings where id = 1) is null then
     raise exception 'Payments are not set up yet. Please try again later.';
   end if;
   -- reuse a fresh open order for the same plan and price
@@ -3792,7 +3768,7 @@ begin
   update public.payments set status = 'expired', admin_note = 'replaced by a new order', updated_at = now()
    where user_id = auth.uid() and status = 'pending';
   insert into public.payments (plan_id, user_id, reference, status, method)
-  values (p_plan_id, auth.uid(), 'new', 'pending', case when m = 'auto' then 'youpi' else 'upi_manual' end)
+  values (p_plan_id, auth.uid(), 'new', 'pending', 'upi_manual')
   returning * into r;
   return r;
 end $$;
@@ -3837,40 +3813,6 @@ returns public.payments language sql stable security definer set search_path = p
 $$;
 revoke execute on function public.my_payment(text) from public, anon;
 grant execute on function public.my_payment(text) to authenticated;
-
--- ---------- gateway (service role only) ----------
-create or replace function public.gateway_payment_success(p_order_id text, p_amount_paise integer, p_utr text, p_payment_id text)
-returns json language plpgsql security definer set search_path = public as $$
-declare
-  pay public.payments;
-  v   text := nullif(regexp_replace(coalesce(p_utr, ''), '\s', '', 'g'), '');
-begin
-  select * into pay from public.payments where order_id = upper(btrim(coalesce(p_order_id, ''))) for update;
-  if not found then return json_build_object('result', 'unknown_order'); end if;
-  if pay.status = 'paid' then return json_build_object('result', 'already_paid', 'order_id', pay.order_id); end if;
-  if v is not null and exists (select 1 from public.payments where utr = v and id <> pay.id) then
-    return json_build_object('result', 'duplicate_utr', 'order_id', pay.order_id);
-  end if;
-  if pay.status in ('review') and pay.gateway_payment_id is not distinct from p_payment_id then
-    return json_build_object('result', 'already_review', 'order_id', pay.order_id);
-  end if;
-  update public.payments
-     set utr = coalesce(v, utr), gateway_payment_id = coalesce(p_payment_id, gateway_payment_id), method = 'youpi', updated_at = now()
-   where id = pay.id
-  returning * into pay;
-  if p_amount_paise is null or p_amount_paise <> pay.amount_paise then
-    update public.payments
-       set status = 'review', admin_note = format('Gateway reported %s paise, order is %s paise - check before approving',
-                                                  coalesce(p_amount_paise::text, '?'), pay.amount_paise), updated_at = now()
-     where id = pay.id;
-    return json_build_object('result', 'review_amount', 'order_id', pay.order_id);
-  end if;
-  pay := public.verified_payment(pay.id, 'gateway', 'Paid via gateway (verified) - approve to start the plan');
-  return json_build_object('result', case when pay.status = 'paid' then 'paid' else 'review' end,
-                           'order_id', pay.order_id, 'payment_id', pay.id);
-end $$;
-revoke execute on function public.gateway_payment_success(text, integer, text, text) from public, anon, authenticated;
-grant execute on function public.gateway_payment_success(text, integer, text, text) to service_role;
 
 -- ---------- owner functions ----------
 create or replace function public.admin_review_payment(p_payment_id uuid, p_approve boolean, p_note text)
@@ -4486,13 +4428,12 @@ alter table public.payments add column if not exists result_note text;
 -- Orders are reused for 24 h for the same plan; other open orders of the user are closed.
 create or replace function public.create_order(p_plan_id uuid)
 returns public.payments language plpgsql security definer set search_path = public as $$
-declare r public.payments; m text; price int;
+declare r public.payments; price int;
 begin
   if auth.uid() is null then raise exception 'Please sign in first'; end if;
   select price_paise into price from public.subscription_plans where id = p_plan_id and active;
   if price is null then raise exception 'This plan is not available'; end if;
-  select mode into m from public.payment_settings where id = 1;
-  if (select upi_vpa from public.payment_settings where id = 1) is null and coalesce(m, 'manual') = 'manual' then
+  if (select upi_vpa from public.payment_settings where id = 1) is null then
     raise exception 'Payments are not set up yet. Please try again later.';
   end if;
   select * into r from public.payments
@@ -4503,7 +4444,7 @@ begin
   update public.payments set status = 'cancelled', admin_note = 'Replaced by a new order', updated_at = now()
    where user_id = auth.uid() and status = 'pending';
   insert into public.payments (plan_id, user_id, reference, status, method)
-  values (p_plan_id, auth.uid(), 'new', 'pending', case when m = 'auto' then 'youpi' else 'upi_manual' end)
+  values (p_plan_id, auth.uid(), 'new', 'pending', 'upi_manual')
   returning * into r;
   return r;
 end $$;
@@ -4842,16 +4783,7 @@ end $$;
 -- cancel_upi_payment -> 'cancelled'; report_debit_sms also accepts failed / cancelled orders
 -- (same bodies as before with those status lists; applied as migration upi_intent_v2_4).
 
--- ============================================================ 38. YouPI removed: UPI + bank SMS / UTR only
--- get_checkout_settings() returns only { upi_vpa, payee_name }; create_order / payments_before_insert
--- always use method 'upi_manual'; payment_settings_guard only checks the UPI ID.
--- gateway_payment_success / admin_set_setup_checklist now just raise 'YouPI was removed' (no grants).
--- Bank SMS auto-verify enabled with sender filter 'BANDHN' (the forwarder link is created in Admin).
--- Optional final cleanup (run in the Supabase SQL editor):
---   drop function if exists public.gateway_payment_success(text, integer, text, text);
---   drop function if exists public.admin_set_setup_checklist(jsonb);
---   alter table public.payment_settings drop column if exists mode, drop column if exists youpi_base_url,
---     drop column if exists youpi_public_key, drop column if exists setup_checklist,
---     drop column if exists health_ok_at, drop column if exists health_report;
---   alter table public.payments drop constraint if exists payments_method_check;
---   alter table public.payments add constraint payments_method_check check (method = 'upi_manual');
+-- ============================================================ 38. Payments: UPI only
+-- Orders are always 'upi_manual'; a payment is confirmed by the checked UPI-app answer (Android),
+-- the owner's bank credit SMS (bank-sms edge function, sender filter 'BDNSMS') or the customer's
+-- UTR + owner approval. get_checkout_settings() returns only { upi_vpa, payee_name }.

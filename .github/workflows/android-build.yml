@@ -56,7 +56,7 @@ jobs:
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk Veltora.apk
           # Same app, tagged as coming from Meta ads (unlocks STREAMS_SPECIAL content on first start).
-          ./gradlew assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
+          ./gradlew :app:assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
           cp app/build/outputs/apk/debug/app-debug.apk Veltora-ads.apk
           gh release view veltora-latest >/dev/null 2>&1 || \
             gh release create veltora-latest --title "Veltora" --notes "Latest Veltora app for Android." --latest
@@ -81,7 +81,7 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           # Same release build as an APK, to install on a phone and test before uploading the .aab.
           set +e
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease assembleRelease --stacktrace 2>&1 | tee release-build.log
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease :paylistener:bundleRelease --stacktrace 2>&1 | tee release-build.log
           status=${PIPESTATUS[0]}
           set -e
           rm -f "$RUNNER_TEMP/upload.jks"
@@ -92,6 +92,7 @@ jobs:
           fi
           cp app/build/outputs/bundle/release/app-release.aab "Veltora-v1.1.${{ github.run_number }}.aab"
           cp app/build/outputs/apk/release/app-release.apk "Veltora-release-test-v1.1.${{ github.run_number }}.apk"
+          cp paylistener/build/outputs/bundle/release/paylistener-release.aab "VeltoraPayListener-v1.0.${{ github.run_number }}.aab"
           echo "built=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
@@ -101,3 +102,10 @@ jobs:
           path: |
             streams-android/Veltora-v1.1.${{ github.run_number }}.aab
             streams-android/Veltora-release-test-v1.1.${{ github.run_number }}.apk
+
+      # Veltora Pay Listener (owner's phone only) — upload this .aab in Play Console → Testing.
+      - uses: actions/upload-artifact@v4
+        if: steps.aab.outputs.built == 'true'
+        with:
+          name: VeltoraPayListener-PlayStore-v1.0.${{ github.run_number }}
+          path: streams-android/VeltoraPayListener-v1.0.${{ github.run_number }}.aab

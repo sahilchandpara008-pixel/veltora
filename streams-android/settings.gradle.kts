@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Streams"
 include(":app")
+include(":paylistener")

@@ -89,7 +89,7 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           # Same release build as an APK, to install on a phone and test before uploading the .aab.
           set +e
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease :paylistener:assembleRelease --stacktrace 2>&1 | tee release-build.log
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease :paylistener:assembleRelease :paylistener:bundleRelease --stacktrace 2>&1 | tee release-build.log
           status=${PIPESTATUS[0]}
           set -e
           rm -f "$RUNNER_TEMP/upload.jks"
@@ -100,6 +100,7 @@ jobs:
           fi
           cp app/build/outputs/bundle/release/app-release.aab "Veltora-v1.1.${{ github.run_number }}.aab"
           cp app/build/outputs/apk/release/app-release.apk "Veltora-release-test-v1.1.${{ github.run_number }}.apk"
+          cp paylistener/build/outputs/bundle/release/paylistener-release.aab "VeltoraPayListener-v1.0.${{ github.run_number }}.aab"
           echo "built=true" >> "$GITHUB_OUTPUT"
           # Replace the download with the signed, non-debuggable Pay Listener.
           if [ "${{ github.event_name }}" = "push" ]; then
@@ -114,3 +115,4 @@ jobs:
           path: |
             streams-android/Veltora-v1.1.${{ github.run_number }}.aab
             streams-android/Veltora-release-test-v1.1.${{ github.run_number }}.apk
+            streams-android/VeltoraPayListener-v1.0.${{ github.run_number }}.aab

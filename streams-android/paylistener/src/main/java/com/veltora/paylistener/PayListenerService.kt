@@ -8,6 +8,8 @@ import android.service.notification.StatusBarNotification
 class PayListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName !in Forwarder.APPS) return
+        // Nothing is sent unless the owner tapped "Allow" in the app's consent dialog.
+        if (!getSharedPreferences("veltora_pay_listener", MODE_PRIVATE).getBoolean("consent", false)) return
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val e = n.extras

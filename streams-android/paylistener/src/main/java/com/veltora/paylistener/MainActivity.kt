@@ -1,6 +1,7 @@
 package com.veltora.paylistener
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
@@ -29,7 +30,7 @@ class MainActivity : Activity() {
         root.addView(text("Keep this app on the phone that gets your Google Pay / PhonePe / Paytm / SBI \"money received\" notifications. It sends them to Veltora so plans activate by themselves."))
         status = text("")
         root.addView(status)
-        root.addView(button("1. Allow notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
+        root.addView(button("1. Allow notification access") { askConsent() })
         root.addView(text("2. Paste the SMS link from Admin → Payment Settings → Create new SMS link:"))
         val link = EditText(this).apply { setText(Forwarder.link(this@MainActivity)); hint = "https://…/functions/v1/bank-sms?key=…"; textSize = 13f }
         root.addView(link, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -51,6 +52,31 @@ class MainActivity : Activity() {
         log = text("", 13f)
         root.addView(log)
         setContentView(ScrollView(this).apply { addView(root) })
+        if (!getSharedPreferences("veltora_pay_listener", MODE_PRIVATE).contains("consent")) askConsent()
+    }
+
+    /** Prominent disclosure: explain exactly what is read and sent, and only then open the system setting. */
+    private fun askConsent() {
+        AlertDialog.Builder(this)
+            .setTitle("Allow Veltora Pay Listener to read payment notifications?")
+            .setMessage(
+                "This app reads notifications ONLY from Google Pay, PhonePe, Paytm, BHIM and SBI YONO.\n\n" +
+                    "When one says money was received, its text (payer name, amount, reference) is sent to your own " +
+                    "Veltora server so the customer's plan is activated.\n\n" +
+                    "Notifications from every other app are ignored and never leave this phone. Nothing is shared with anyone else.\n\n" +
+                    "You can turn this off any time in Settings → Notification access."
+            )
+            .setPositiveButton("Allow") { _, _ ->
+                getSharedPreferences("veltora_pay_listener", MODE_PRIVATE).edit().putBoolean("consent", true).apply()
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+            .setNegativeButton("Deny") { _, _ ->
+                getSharedPreferences("veltora_pay_listener", MODE_PRIVATE).edit().putBoolean("consent", false).apply()
+                Toast.makeText(this, "Without this, payments must be approved by hand in the admin panel.", Toast.LENGTH_LONG).show()
+                refresh()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     override fun onResume() {

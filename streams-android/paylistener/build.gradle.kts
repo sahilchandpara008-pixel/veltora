@@ -24,6 +24,23 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Same Google Play upload key as the main app (CI writes it from the repo secrets).
+        val uploadKeystore = System.getenv("UPLOAD_KEYSTORE")
+        if (!uploadKeystore.isNullOrBlank()) {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = System.getenv("UPLOAD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // Signed, non-debuggable build: the one published for download (Play Protect trusts it more).
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
+            isMinifyEnabled = false
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

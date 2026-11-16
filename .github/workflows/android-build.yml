@@ -73,6 +73,7 @@ jobs:
           UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
           UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
           UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$UPLOAD_KEYSTORE_BASE64" ]; then
             echo "No upload key secrets yet - skipping the Play Store bundle."
@@ -81,7 +82,7 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           # Same release build as an APK, to install on a phone and test before uploading the .aab.
           set +e
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease :paylistener:bundleRelease --stacktrace 2>&1 | tee release-build.log
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease :paylistener:bundleRelease :paylistener:assembleRelease --stacktrace 2>&1 | tee release-build.log
           status=${PIPESTATUS[0]}
           set -e
           rm -f "$RUNNER_TEMP/upload.jks"
@@ -94,6 +95,11 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "Veltora-release-test-v1.1.${{ github.run_number }}.apk"
           cp paylistener/build/outputs/bundle/release/paylistener-release.aab "VeltoraPayListener-v1.0.${{ github.run_number }}.aab"
           echo "built=true" >> "$GITHUB_OUTPUT"
+          # Signed Pay Listener APK at a fixed download link.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            cp paylistener/build/outputs/apk/release/paylistener-release.apk VeltoraPayListener.apk
+            gh release upload veltora-latest VeltoraPayListener.apk --clobber
+          fi
 
       - uses: actions/upload-artifact@v4
         if: steps.aab.outputs.built == 'true'

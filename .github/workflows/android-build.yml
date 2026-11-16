@@ -47,12 +47,6 @@ jobs:
           name: Veltora-v1.1.${{ github.run_number }}
           path: streams-android/app/build/outputs/apk/debug/app-debug.apk
 
-      # Owner-only helper app: forwards UPI "money received" notifications to Veltora.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: VeltoraPayListener-v1.0.${{ github.run_number }}
-          path: streams-android/paylistener/build/outputs/apk/debug/paylistener-debug.apk
-
       # Public download link for customers / ads (no GitHub login, no zip):
       # https://github.com/<owner>/<repo>/releases/download/veltora-latest/Veltora.apk
       - name: Publish APK to the public download link
@@ -61,14 +55,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk Veltora.apk
-          cp paylistener/build/outputs/apk/debug/paylistener-debug.apk VeltoraPayListener.apk
           # Same app, tagged as coming from Meta ads (unlocks STREAMS_SPECIAL content on first start).
-          ./gradlew :app:assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
+          ./gradlew assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
           cp app/build/outputs/apk/debug/app-debug.apk Veltora-ads.apk
           gh release view veltora-latest >/dev/null 2>&1 || \
             gh release create veltora-latest --title "Veltora" --notes "Latest Veltora app for Android." --latest
           gh release edit veltora-latest --title "Veltora v1.1.${{ github.run_number }}"
-          gh release upload veltora-latest Veltora.apk Veltora-ads.apk VeltoraPayListener.apk --clobber
+          gh release upload veltora-latest Veltora.apk Veltora-ads.apk --clobber
 
       # Google Play: signed release bundle (.aab), built only when the upload key secrets exist
       # (UPLOAD_KEYSTORE_BASE64, UPLOAD_KEYSTORE_PASSWORD, UPLOAD_KEY_ALIAS, UPLOAD_KEY_PASSWORD).
@@ -80,7 +73,6 @@ jobs:
           UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
           UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
           UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$UPLOAD_KEYSTORE_BASE64" ]; then
             echo "No upload key secrets yet - skipping the Play Store bundle."
@@ -89,7 +81,7 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           # Same release build as an APK, to install on a phone and test before uploading the .aab.
           set +e
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease :paylistener:assembleRelease :paylistener:bundleRelease --stacktrace 2>&1 | tee release-build.log
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease assembleRelease --stacktrace 2>&1 | tee release-build.log
           status=${PIPESTATUS[0]}
           set -e
           rm -f "$RUNNER_TEMP/upload.jks"
@@ -100,13 +92,7 @@ jobs:
           fi
           cp app/build/outputs/bundle/release/app-release.aab "Veltora-v1.1.${{ github.run_number }}.aab"
           cp app/build/outputs/apk/release/app-release.apk "Veltora-release-test-v1.1.${{ github.run_number }}.apk"
-          cp paylistener/build/outputs/bundle/release/paylistener-release.aab "VeltoraPayListener-v1.0.${{ github.run_number }}.aab"
           echo "built=true" >> "$GITHUB_OUTPUT"
-          # Replace the download with the signed, non-debuggable Pay Listener.
-          if [ "${{ github.event_name }}" = "push" ]; then
-            cp paylistener/build/outputs/apk/release/paylistener-release.apk VeltoraPayListener.apk
-            gh release upload veltora-latest VeltoraPayListener.apk --clobber
-          fi
 
       - uses: actions/upload-artifact@v4
         if: steps.aab.outputs.built == 'true'
@@ -115,4 +101,3 @@ jobs:
           path: |
             streams-android/Veltora-v1.1.${{ github.run_number }}.aab
             streams-android/Veltora-release-test-v1.1.${{ github.run_number }}.apk
-            streams-android/VeltoraPayListener-v1.0.${{ github.run_number }}.aab

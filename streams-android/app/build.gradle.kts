@@ -14,7 +14,7 @@ val localProps = Properties().apply {
 }
 fun prop(name: String) = (localProps.getProperty(name) ?: "").trim()
 
-// The Streams Supabase project. The anon key is public by design (every APK contains it);
+// The Veltora Supabase project. The anon key is public by design (every APK contains it);
 // all protection comes from the row-level security rules in supabase/schema.sql.
 // local.properties values, when set, override these.
 val supabaseUrl = prop("SUPABASE_URL").ifEmpty { "https://wyhexbcmidcclfqngvxz.supabase.co" }
@@ -23,7 +23,7 @@ val supabaseAnonKey = prop("SUPABASE_ANON_KEY").ifEmpty {
 }
 
 android {
-    namespace = "com.streams.app"
+    namespace = "com.veltora.app"
     compileSdk = 36
 
     defaultConfig {
@@ -38,7 +38,7 @@ android {
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
-        // Set only for the ads download (Streams-ads.apk, built with -PapkReferrer=...): APKs
+        // Set only for the ads download (Veltora-ads.apk, built with -PapkReferrer=...): APKs
         // installed from a link get no Google Play install referrer, so the file carries its source.
         val apkReferrer = (project.findProperty("apkReferrer") as String?).orEmpty().replace("\"", "")
         buildConfigField("String", "APK_REFERRER", "\"$apkReferrer\"")
@@ -121,4 +121,5 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+    implementation("com.google.zxing:core:3.5.3") // UPI QR code on the checkout
 }

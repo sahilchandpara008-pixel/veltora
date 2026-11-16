@@ -1,0 +1,1023 @@
+package com.veltora.app.ui.screens
+
+import com.veltora.app.ui.theme.Surface3
+
+import com.veltora.app.data.Links
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Policy
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.NavController
+import com.veltora.app.AppState
+import com.veltora.app.BuildConfig
+import com.veltora.app.Load
+import com.veltora.app.data.Payment
+import com.veltora.app.data.PaymentSettings
+import com.veltora.app.data.Plan
+import com.veltora.app.data.Repo
+import com.veltora.app.data.Subscription
+import com.veltora.app.data.UpiPay
+import com.veltora.app.data.currentEmail
+import com.veltora.app.data.friendly
+import com.veltora.app.rememberLoad
+import com.veltora.app.ui.components.Card
+import com.veltora.app.ui.components.ErrorState
+import com.veltora.app.ui.components.Loading
+import com.veltora.app.ui.components.PremiumBenefitsCard
+import com.veltora.app.ui.components.PrimaryButton
+import com.veltora.app.ui.components.SecondaryButton
+import com.veltora.app.ui.components.formatDate
+import com.veltora.app.ui.components.formatPrice
+import com.veltora.app.ui.theme.Amber
+import com.veltora.app.ui.theme.Gold
+import com.veltora.app.ui.theme.Green
+import com.veltora.app.ui.theme.Outline
+import com.veltora.app.ui.theme.Poppins
+import com.veltora.app.ui.theme.Red
+import com.veltora.app.ui.theme.RedGradient
+import com.veltora.app.ui.theme.Surface1
+import com.veltora.app.ui.theme.Surface2
+import com.veltora.app.ui.theme.TextFaint
+import com.veltora.app.ui.theme.TextMuted
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.time.OffsetDateTime
+
+private data class ProfileData(
+    val email: String?,
+    val subscription: Subscription?,
+    val plans: List<Plan>,
+    val payments: List<Payment>,
+    val settings: PaymentSettings?,
+    val adminRole: String?,
+    /** An automatic UPI order still waiting for its payment (survives leaving the app). */
+    val openOrder: Payment? = null,
+)
+
+@Composable
+fun ProfileScreen(nav: NavController) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val access by AppState.accessVersion.collectAsStateWithLifecycle()
+    val load = rememberLoad(access) {
+        coroutineScope {
+            val email = currentEmail()
+            val sub = async { if (email != null) Repo.mySubscription() else null }
+            val plans = async { Repo.plans() }
+            val pays = async { if (email != null) Repo.myPayments() else emptyList() }
+            val settings = async { runCatching { Repo.paymentSettings() }.getOrNull() }
+            // Only owner/manager accounts get a role back; everyone else gets null.
+            val role = async { if (email != null) runCatching { Repo.myAdminRole() }.getOrNull() else null }
+            val open = async { if (email != null) runCatching { Repo.myOpenOrder() }.getOrNull() else null }
+            ProfileData(email, sub.await(), plans.await(), pays.await(), settings.await(), role.await(), open.await())
+        }
+    }
+    var versionTaps by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
+    val scrollToPlans by AppState.scrollToPlans.collectAsStateWithLifecycle()
+    var deletingAccount by remember { mutableStateOf(false) }
+    if (deletingAccount) {
+        DeleteAccountDialog(onDismiss = { deletingAccount = false }) {
+            deletingAccount = false
+            scope.launch {
+                AppState.refreshAccess()
+                nav.navigate("home") { popUpTo(nav.graph.id) { inclusive = true } }
+            }
+        }
+    }
+
+    when (val s = load.state) {
+        Load.Loading -> Loading()
+        is Load.Err -> ErrorState(s.message, load.reload)
+        is Load.Ok -> {
+            val d = s.data
+            // Asked to show the plans (e.g. from a locked title): jump to the Premium card + plans.
+            LaunchedEffect(scrollToPlans) {
+                if (scrollToPlans) {
+                    listState.animateScrollToItem(if (d.adminRole != null) 3 else 2)
+                    AppState.scrollToPlans.value = false
+                }
+            }
+            LazyColumn(
+                Modifier.fillMaxSize().imePadding(),
+                state = listState,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                item {
+                    Text(
+                        "Profile",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.statusBarsPadding().padding(top = 14.dp),
+                    )
+                }
+                val free = d.settings?.freeMode == true
+                item { MembershipCard(d.email, d.subscription, nav, free, d.plans.firstOrNull { it.id == d.subscription?.planId }?.name) }
+                if (d.adminRole != null) {
+                    item {
+                        MenuRow(
+                            icon = Icons.Default.AdminPanelSettings,
+                            title = "Admin panel",
+                            subtitle = "Upload content, approve payments · ${if (d.adminRole == "owner") "Owner" else "Manager"}",
+                            onClick = { nav.navigate("admin") },
+                        )
+                    }
+                }
+
+                item {
+                    MenuRow(
+                        icon = Icons.Default.VideoLibrary,
+                        title = "My channels",
+                        subtitle = "Create a channel and stream your videos · needs a plan",
+                        onClick = { nav.navigate("creator") },
+                    )
+                }
+
+                if (!free) {
+                    item { PremiumBenefitsCard() }
+                    item {
+                        Column {
+                            Text("Choose your plan", style = MaterialTheme.typography.titleLarge)
+                            Text("One-time UPI payment · no auto-renewal", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    item {
+                        PlansSection(d, onSignIn = { nav.navigate("auth") }, onSubmitted = {
+                            scope.launch { AppState.refreshAccess() }
+                        })
+                    }
+                }
+
+                if (d.email != null) {
+                    if (!free) item { Text("Payment history", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 10.dp)) }
+                    if (!free && d.payments.isEmpty()) {
+                        item {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Receipt, null, tint = TextFaint, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Your payments will appear here.", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                    if (!free) items(d.payments, key = { it.id }) { PaymentRow(it) }
+                    item {
+                        MenuRow(
+                            icon = Icons.AutoMirrored.Filled.Logout,
+                            title = "Sign out",
+                            subtitle = d.email,
+                            onClick = {
+                                scope.launch {
+                                    runCatching { Repo.signOut() }
+                                    AppState.refreshAccess()
+                                    nav.navigate("home") { popUpTo(nav.graph.id) { inclusive = true } }
+                                }
+                            },
+                        )
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MenuRow(Icons.Default.Policy, "Privacy policy", null) { openLink(context, Links.PRIVACY) }
+                        MenuRow(Icons.Default.Description, "Terms of use", null) { openLink(context, Links.TERMS) }
+                        if (d.email != null) {
+                            MenuRow(Icons.Default.DeleteForever, "Delete account", "Permanently delete your account and data") {
+                                deletingAccount = true
+                            }
+                        }
+                    }
+                }
+                item {
+                    // Tapping the version 7 times opens the admin sign-in (not linked anywhere else).
+                    Text(
+                        "Veltora ${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextFaint,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .clickable(interactionSource = null, indication = null) {
+                                versionTaps++
+                                if (versionTaps >= 7) { versionTaps = 0; nav.navigate("admin-login") }
+                            },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MembershipCard(email: String?, sub: Subscription?, nav: NavController, free: Boolean = false, planName: String? = null) {
+    val expires = sub?.expiresAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+    val active = sub?.status == "active" && expires?.isAfter(OffsetDateTime.now()) == true
+    val left = if (active && expires != null) java.time.Duration.between(OffsetDateTime.now(), expires) else java.time.Duration.ZERO
+    // "12 days left", or for short plans "1 hour left" / "25 minutes left".
+    val (leftValue, leftUnit) = when {
+        left.toDays() >= 1 -> left.toDays() to "day"
+        left.toHours() >= 1 -> left.toHours() to "hour"
+        else -> maxOf(1L, left.toMinutes()) to "minute"
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .background(
+                if (active) Brush.linearGradient(listOf(Color(0xFF3B0A0D), Color(0xFF1A1014), Surface1))
+                else Brush.linearGradient(listOf(Surface2, Surface1)),
+            )
+            .border(1.dp, if (active) Red.copy(alpha = 0.45f) else Outline, MaterialTheme.shapes.large)
+            .padding(18.dp),
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(52.dp).clip(CircleShape).background(if (email != null) RedGradient else Brush.linearGradient(listOf(Surface2, Surface2))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text((email ?: "?").take(1).uppercase(), color = Color.White, fontFamily = Poppins, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(email ?: "Welcome to Veltora", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    val (label, color) = when {
+                        email == null -> (if (free) "Sign in to watch everything for free" else "Sign in to watch and subscribe") to TextMuted
+                        free -> "Free account · watch everything" to TextMuted
+                        active -> "Premium member" to Gold
+                        sub != null -> "Plan expired" to Amber
+                        else -> "Free account" to TextMuted
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (active) {
+                            Icon(Icons.Default.WorkspacePremium, null, tint = Gold, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+                    }
+                }
+            }
+            when {
+                email == null -> {
+                    Spacer(Modifier.height(16.dp))
+                    PrimaryButton("Sign in", { nav.navigate("auth") })
+                }
+                active -> {
+                    Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(planName ?: "Premium plan", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            "ACTIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            modifier = Modifier.clip(CircleShape).background(Green.copy(alpha = 0.85f)).padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("$leftValue", fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Color.White)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (leftValue == 1L) "$leftUnit left" else "${leftUnit}s left",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(bottom = 5.dp),
+                        )
+                    }
+                    Text("Valid until ${formatDate(sub!!.expiresAt)}", style = MaterialTheme.typography.bodySmall)
+                    // How much of the plan is used up.
+                    val start = sub.startsAt?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+                    if (start != null && expires != null) {
+                        val total = java.time.Duration.between(start, expires).seconds.coerceAtLeast(1)
+                        val used = (1f - left.seconds.toFloat() / total).coerceIn(0f, 1f)
+                        Spacer(Modifier.height(10.dp))
+                        LinearProgressIndicator(
+                            progress = { used },
+                            color = Red,
+                            trackColor = Surface3,
+                            drawStopIndicator = {},
+                            modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                        )
+                    }
+                }
+                sub != null && !free -> {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Expired on ${formatDate(sub.expiresAt)}. Choose a plan below to continue watching premium.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String?, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(Surface1)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(Surface2), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = TextMuted)
+    }
+}
+
+@Composable
+private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Pre-select the "most popular" plan so the next step is obvious.
+    val popularId = d.plans.firstOrNull { it.durationDays in 28..31 }?.id ?: d.plans.getOrNull(d.plans.size / 2)?.id
+    var selected by remember(d.plans) { mutableStateOf(d.plans.firstOrNull { it.id == popularId }) }
+    var utr by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var submitted by remember { mutableStateOf<Payment?>(null) }
+    var activated by remember { mutableStateOf<Payment?>(null) }
+    var showManual by remember { mutableStateOf(false) }
+    // The UPI app closed without telling us the result (some apps don't, or the user backed out).
+    var noAnswer by remember { mutableStateOf(false) }
+    // The order created on the server just before the UPI app was opened (exact plan price);
+    // the incoming bank credit of that amount activates it.
+    var order by remember { mutableStateOf<Payment?>(null) }
+    LaunchedEffect(d.openOrder?.id) { if (order == null && activated == null) order = d.openOrder }
+    // Installed UPI apps (GPay, PhonePe, Paytm, BHIM…), shown as direct buttons.
+    val upiApps = remember { installedUpiApps(context) }
+    var pickFor by remember { mutableStateOf<Payment?>(null) }
+    val pending = submitted ?: d.payments.firstOrNull { it.status == "submitted" || it.status == "review" }
+
+    // Final status always comes from the backend (check_payment_status), which activates a plan
+    // only after trusted verification. We ask it every 5 s for the first 10 minutes; after that
+    // the customer can tap "Check payment status" (the order stays open for 24 h).
+    var checking by remember { mutableStateOf(false) }
+    fun applyBackendStatus(p: Payment) {
+        when (p.status) {
+            "paid" -> { activated = p; order = null; noAnswer = false; busy = false; error = null; onSubmitted() }
+            "rejected" -> { order = null; noAnswer = false; busy = false; error = "This payment was rejected. Please contact support or try again." }
+            "failed" -> { order = null; noAnswer = false; busy = false; error = "Payment failed. Please try again." }
+            "cancelled", "expired" -> { order = null; noAnswer = false; busy = false; error = "Payment cancelled. You can try again." }
+            // UTR received; the plan starts once the payment is verified / approved.
+            "submitted", "review" -> { submitted = p; order = null; noAnswer = false; busy = false }
+            else -> if (order?.id == p.id) order = p
+        }
+    }
+    fun checkNow(o: Payment) {
+        checking = true
+        scope.launch {
+            runCatching { Repo.checkPaymentStatus(o.id) }
+                .onSuccess { applyBackendStatus(it) }
+                .onFailure { error = it.friendly() }
+            checking = false
+        }
+    }
+    LaunchedEffect(order?.id) {
+        val o = order ?: return@LaunchedEffect
+        repeat(120) {   // every 5 s for ~10 minutes
+            delay(5000)
+            val p = runCatching { Repo.checkPaymentStatus(o.id) }.getOrNull() ?: return@repeat
+            applyBackendStatus(p)
+            if (p.status != "pending") return@LaunchedEffect
+        }
+    }
+
+    // Coming back to Veltora (from the UPI app or another app): ask the server right away.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) order?.let { o ->
+                scope.launch { runCatching { Repo.checkPaymentStatus(o.id) }.onSuccess { applyBackendStatus(it) } }
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    // Back from GPay / PhonePe / Paytm / BharatPe: UpiPay (registered in MainActivity, so it
+    // survives Android closing Veltora meanwhile) sends the UPI app's answer to the backend,
+    // which decides; its verdict arrives here.
+    val upiResult by UpiPay.result.collectAsStateWithLifecycle()
+    LaunchedEffect(upiResult) {
+        val p = upiResult ?: return@LaunchedEffect
+        UpiPay.result.value = null
+        busy = false
+        noAnswer = p.status == "pending" && p.upiResponse?.startsWith("Status=NO_RESPONSE") == true
+        if (p.status == "pending" && order == null) order = p
+        applyBackendStatus(p)
+    }
+    fun openUpiApp(settings: PaymentSettings, o: Payment, pkg: String? = null) {
+        noAnswer = false
+        val upi = upiIntent(settings, o)
+        if (pkg == null && upiApps.isNotEmpty()) {
+            // Our own app list: the picked app is started directly for a result, so it closes after the
+            // payment and hands SUCCESS / FAILURE back. (The system chooser often opens it in a separate
+            // task, where it never returns.)
+            busy = false
+            pickFor = o
+            return
+        }
+        if (pkg != null) {
+            // A specific app picked from the list: open it directly, no chooser.
+            if (!UpiPay.pay(upi.setPackage(pkg), o.id)) { busy = false; error = "Couldn't open that app. Try another UPI app." }
+            return
+        }
+        if (!UpiPay.pay(Intent.createChooser(upi, "Pay with"), o.id)) {
+            busy = false
+            error = "No UPI app found on this phone."
+        }
+    }
+
+    pickFor?.let { o ->
+        val settings = d.settings
+        if (settings != null) {
+            AlertDialog(
+                onDismissRequest = { pickFor = null },
+                title = { Text("Pay ${formatPrice(o.rupees)} with") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        upiApps.forEach { app ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable { pickFor = null; openUpiApp(settings, o, app.pkg) }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (app.icon != null) {
+                                    Image(app.icon, null, modifier = Modifier.size(36.dp))
+                                } else {
+                                    Box(Modifier.size(36.dp).clip(CircleShape).background(Surface2))
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text(app.label, style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { pickFor = null }) { Text("Cancel") } },
+            )
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        activated?.let { p ->
+            Card {
+                Row {
+                    Icon(Icons.Default.CheckCircle, null, tint = Green)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Payment successful! Your plan is now active.", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${p.planName ?: "Plan"} · ${formatPrice(p.rupees)} · UTR ${p.utr}\nEnjoy all Premium content right away.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+        if (pending != null) {
+            Card {
+                Row {
+                    Icon(Icons.Default.HourglassTop, null, tint = Amber)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Payment verification is pending. We're checking your payment.", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${pending.planName ?: "Plan"} · ${formatPrice(pending.rupees)} · Order ${pending.orderId ?: pending.reference}" +
+                                ((pending.utrNumber ?: pending.txnId)?.let { " · UTR $it" } ?: "") + "\n" +
+                                "Your plan starts as soon as the payment is confirmed.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+            return@Column
+        }
+
+        val waiting = order
+        if (waiting != null && d.settings != null) {
+            WaitingForPaymentCard(
+                waiting,
+                settings = d.settings,
+                onSubmitUtr = { v, done ->
+                    scope.launch {
+                        runCatching { Repo.submitUtr(waiting.orderId ?: waiting.reference, v) }
+                            .onSuccess { applyBackendStatus(it); done(null) }
+                            .onFailure { done(it.friendly()) }
+                    }
+                },
+                onPayAgain = { openUpiApp(d.settings, waiting) },
+                apps = upiApps.map { it.label to it.pkg },
+                onPayWith = { pkg -> openUpiApp(d.settings, waiting, pkg) },
+                noAnswer = noAnswer,
+                checking = checking,
+                onCheck = { checkNow(waiting) },
+                onEnterUtr = { order = null; showManual = true; selected = d.plans.firstOrNull { it.id == waiting.planId } ?: selected },
+                onCancel = {
+                    scope.launch { runCatching { Repo.cancelUpiPayment(waiting.id) } }
+                    order = null; noAnswer = false; error = "Payment cancelled. You can try again."
+                },
+            )
+            return@Column
+        }
+
+        d.plans.forEach { plan ->
+            PlanCard(plan, selected?.id == plan.id, plan.id == popularId) { selected = plan; error = null }
+        }
+
+        val plan = selected ?: return@Column
+        if (d.email == null) {
+            Spacer(Modifier.height(4.dp))
+            PrimaryButton("Sign in to buy ${plan.name}", onSignIn)
+            return@Column
+        }
+        val settings = d.settings
+        if (settings == null) {
+            Text("Payments are not set up yet. Please try again later.", style = MaterialTheme.typography.bodyMedium)
+            return@Column
+        }
+
+        Card(Modifier.padding(top = 6.dp), padding = 18.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pay for ${plan.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text(formatPrice(plan.price), style = MaterialTheme.typography.headlineSmall)
+                }
+                Text(
+                    "Pay with Google Pay, PhonePe, Paytm or any UPI app. Your plan starts as soon as " +
+                        "the payment is confirmed — no UTR needed.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                PrimaryButton(
+                    "Pay ${formatPrice(plan.price)} via UPI",
+                    onClick = {
+                        busy = true; error = null
+                        scope.launch {
+                            runCatching { Repo.startUpiPayment(plan.id) }
+                                .onSuccess { o -> order = o; openUpiApp(settings, o) }
+                                .onFailure { busy = false; error = it.friendly() }
+                        }
+                    },
+                    loading = busy,
+                )
+                AnimatedVisibility(error != null) {
+                    Text(error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+
+                // Fallback when the UPI app doesn't report back (or the phone has none).
+                Text(
+                    if (showManual) "Hide manual payment" else "Paid but plan not active? Enter UTR",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextMuted,
+                    modifier = Modifier.clickable { showManual = !showManual }.padding(vertical = 4.dp),
+                )
+                AnimatedVisibility(showManual) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(Surface2).padding(start = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                                Text("UPI ID", style = MaterialTheme.typography.bodySmall)
+                                Text(settings.upiId, style = MaterialTheme.typography.titleSmall)
+                                Text(settings.payeeName, style = MaterialTheme.typography.bodySmall)
+                            }
+                            IconButton(onClick = { copy(context, settings.upiId) }) { Icon(Icons.Default.ContentCopy, "Copy UPI ID", tint = Color.White) }
+                        }
+                        Text(
+                            "Your UPI app shows a 12-digit UTR or transaction ID in the payment details. We'll verify it and activate your plan.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedTextField(
+                            value = utr,
+                            onValueChange = { v -> utr = v.filter { it.isLetterOrDigit() }.take(35).uppercase() },
+                            label = { Text("UTR / reference number") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.small,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, cursorColor = Color.White, focusedLabelColor = Color.White),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        SecondaryButton(
+                            "Submit for verification",
+                            onClick = {
+                                busy = true; error = null
+                                scope.launch {
+                                    runCatching { Repo.submitPayment(plan.id, utr) }
+                                        .onSuccess { submitted = it; utr = ""; onSubmitted() }
+                                        .onFailure { error = it.friendly() }
+                                    busy = false
+                                }
+                            },
+                            enabled = utr.length >= 6 && !busy,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WaitingForPaymentCard(
+    order: Payment,
+    settings: PaymentSettings,
+    onSubmitUtr: (String, (String?) -> Unit) -> Unit,
+    noAnswer: Boolean,
+    checking: Boolean,
+    onCheck: () -> Unit,
+    onPayAgain: () -> Unit,
+    onEnterUtr: () -> Unit,
+    onCancel: () -> Unit,
+    apps: List<Pair<String, String>> = emptyList(),
+    onPayWith: (String) -> Unit = {},
+) {
+    Card(padding = 18.dp) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(22.dp), color = Red, strokeWidth = 2.5.dp)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    if (order.clientStatus == null && !noAnswer) "Waiting for your payment"
+                    else "Payment verification is pending. We're checking your payment.",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            Text("Order ${order.orderId ?: order.reference}", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+            if (order.clientStatus != null || noAnswer) {
+                Text(
+                    "We're checking your payment. Your plan starts as soon as the payment is verified — " +
+                        "this usually takes a few seconds. If you didn't pay, tap Cancel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Amber,
+                )
+                SecondaryButton(if (checking) "Checking…" else "Check payment status", onCheck, enabled = !checking)
+            }
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(formatPrice(order.rupees), fontFamily = Poppins, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text(order.planName ?: "", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
+            }
+            Text(
+                "Complete the payment in your UPI app and come back to Veltora. Your plan starts as soon as the " +
+                    "payment reaches us. Not active after a few minutes? Enter the 12-digit UTR below.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (order.status == "pending") {
+                PrimaryButton(if (noAnswer || order.clientStatus != null) "Try paying again" else "Open UPI app", onPayAgain)
+                if (apps.isNotEmpty()) {
+                    Text("Or pay directly with", style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        apps.forEach { (label, pkg) ->
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Surface2)
+                                    .border(1.dp, Outline, CircleShape)
+                                    .clickable { onPayWith(pkg) }
+                                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            // Same as the website checkout: QR, pay manually with the UPI ID, and the UTR fallback.
+            val context = LocalContext.current
+            val qr = remember(order.id) { qrBitmap(upiUri(settings, order).toString()) }
+            if (qr != null && order.status == "pending") {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Image(qr, "UPI QR code", modifier = Modifier.size(200.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(8.dp))
+                }
+                Text("Scan with any UPI app and pay exactly ${formatPrice(order.rupees)}.", style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+            Column(
+                Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(Surface2).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Pay manually", style = MaterialTheme.typography.titleSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(settings.upiId, style = MaterialTheme.typography.bodyLarge, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = Color.White, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { copy(context, settings.upiId) }) {
+                        Icon(Icons.Default.ContentCopy, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp)); Text("Copy UPI ID", color = Color.White)
+                    }
+                }
+                Text(
+                    "If your UPI app shows a limit or risk error: open GPay / PhonePe / Paytm → Pay to UPI ID → paste this ID → " +
+                        "pay exactly ${formatPrice(order.rupees)} → come back here.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            var utr by remember(order.id) { mutableStateOf("") }
+            var utrBusy by remember(order.id) { mutableStateOf(false) }
+            var utrError by remember(order.id) { mutableStateOf<String?>(null) }
+            Text("Paid? Enter the 12-digit UTR / transaction ID", style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = utr,
+                onValueChange = { v -> utr = v.filter { it.isDigit() }.take(12); utrError = null },
+                placeholder = { Text("123456789012") },
+                singleLine = true,
+                shape = MaterialTheme.shapes.small,
+                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, cursorColor = Color.White),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text("GPay: tap the payment → UPI transaction ID. PhonePe: History → payment → UTR. Paytm: Passbook → payment → UPI Ref No.",
+                style = MaterialTheme.typography.bodySmall, color = TextMuted)
+            utrError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            SecondaryButton(
+                if (utrBusy) "Submitting…" else "Submit UTR",
+                onClick = { utrBusy = true; onSubmitUtr(utr) { err -> utrBusy = false; utrError = err } },
+                enabled = utr.length == 12 && !utrBusy,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Order valid for 24 hours",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextMuted,
+                    modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                )
+                Text(
+                    "Cancel",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.clickable(onClick = onCancel).padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanCard(plan: Plan, selected: Boolean, popular: Boolean, onClick: () -> Unit) {
+    Box {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = if (popular) 10.dp else 0.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .background(if (selected) Red.copy(alpha = 0.10f) else Surface1)
+                .border(if (selected) 2.dp else 1.dp, if (selected) Red else Outline, MaterialTheme.shapes.medium)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                null,
+                tint = if (selected) Red else TextFaint,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(plan.name, style = MaterialTheme.typography.titleMedium)
+                Text(plan.durationLabel, style = MaterialTheme.typography.bodySmall)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(formatPrice(plan.price), style = MaterialTheme.typography.titleLarge)
+                if (plan.durationDays > 1) {
+                    Text("₹%.0f / day".format(plan.price / plan.durationDays), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (popular) {
+            Text(
+                "MOST POPULAR",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                modifier = Modifier
+                    .offset(x = 16.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(RedGradient)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PaymentRow(p: Payment) {
+    val (label, color) = when (p.status) {
+        "paid" -> "Paid" to Green
+        "rejected" -> "Rejected" to MaterialTheme.colorScheme.error
+        "failed" -> "Failed" to MaterialTheme.colorScheme.error
+        "cancelled", "expired" -> "Cancelled" to TextMuted
+        "revoked" -> "Revoked" to MaterialTheme.colorScheme.error
+        "submitted", "review" -> "Verifying" to Amber
+        else -> "Waiting for payment" to Amber
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(Surface1).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("${p.planName ?: "Plan"} · ${formatPrice(p.rupees)}", style = MaterialTheme.typography.titleSmall)
+            Text("${formatDate(p.createdAt)} · Order ${p.orderId ?: p.reference}", style = MaterialTheme.typography.bodySmall)
+            (p.utrNumber ?: p.txnId)?.let { Text("UTR $it", style = MaterialTheme.typography.bodySmall) }
+            p.adminNote?.takeIf { p.status == "rejected" }?.let {
+                Text("Reason: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            modifier = Modifier.clip(CircleShape).background(color.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/**
+ * upi://pay?pa=…&pn=…&am=…&cu=INR&tn=Veltora ORDER_ID — same link as the website.
+ * No `tr`/`mc`: with a personal UPI ID, Google Pay blocks links that carry a merchant reference.
+ */
+private fun upiUri(s: PaymentSettings, order: Payment): Uri {
+    val ref = order.orderId ?: order.reference
+    return Uri.Builder()
+        .scheme("upi").authority("pay")
+        .appendQueryParameter("pa", s.upiId)
+        .appendQueryParameter("pn", s.payeeName)
+        .appendQueryParameter("am", "%.2f".format(java.util.Locale.US, order.rupees ?: 0.0))
+        .appendQueryParameter("cu", "INR")
+        .appendQueryParameter("tn", "Veltora $ref")
+        .build()
+}
+
+private fun upiIntent(s: PaymentSettings, order: Payment): Intent = Intent(Intent.ACTION_VIEW, upiUri(s, order))
+
+/** QR code of the UPI link (scan with any UPI app on another phone). */
+private fun qrBitmap(text: String, size: Int = 640): ImageBitmap? = runCatching {
+    val m = com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size,
+        mapOf(com.google.zxing.EncodeHintType.MARGIN to 1))
+    val px = IntArray(size * size) { i -> if (m.get(i % size, i / size)) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
+    android.graphics.Bitmap.createBitmap(px, size, size, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
+}.getOrNull()
+
+private class UpiApp(val label: String, val pkg: String, val icon: ImageBitmap?)
+
+/** Every installed app that handles upi://pay (GPay, PhonePe, Paytm, BHIM, bank apps…). */
+private fun installedUpiApps(context: Context): List<UpiApp> {
+    val pm = context.packageManager
+    return runCatching {
+        pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")), 0)
+            .distinctBy { it.activityInfo.packageName }
+            .map { ri ->
+                UpiApp(
+                    ri.loadLabel(pm).toString(),
+                    ri.activityInfo.packageName,
+                    runCatching { ri.loadIcon(pm).toBitmap(96, 96).asImageBitmap() }.getOrNull(),
+                )
+            }
+            .sortedBy { it.label.lowercase() }
+    }.getOrDefault(emptyList())
+}
+
+private fun copy(context: Context, text: String) {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("UPI ID", text))
+    Toast.makeText(context, "UPI ID copied", Toast.LENGTH_SHORT).show()
+}
+
+private fun openLink(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
+
+/** Google Play requires in-app account deletion. Type DELETE to confirm. */
+@Composable
+private fun DeleteAccountDialog(onDismiss: () -> Unit, onDeleted: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Delete account?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Your account, your channels and videos and your history will be deleted permanently. This can't be undone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(confirm, { confirm = it }, label = { Text("Type DELETE to confirm") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                error?.let { Text(it, color = Red, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && confirm.trim() == "DELETE", onClick = {
+                busy = true; error = null
+                scope.launch {
+                    runCatching { Repo.deleteAccount() }
+                        .onSuccess {
+                            Toast.makeText(context, "Your account and data were deleted.", Toast.LENGTH_LONG).show()
+                            onDeleted()
+                        }
+                        .onFailure { error = it.friendly(); busy = false }
+                }
+            }) { Text("Delete", color = Red) }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } },
+    )
+}

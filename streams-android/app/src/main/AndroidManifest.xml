@@ -13,18 +13,18 @@
     </queries>
 
     <application
-        android:name=".StreamsApp"
+        android:name=".VeltoraApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Streams">
+        android:theme="@style/Theme.Veltora">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Streams.Splash"
+            android:theme="@style/Theme.Veltora.Splash"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:windowSoftInputMode="adjustResize">

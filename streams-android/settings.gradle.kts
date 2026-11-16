@@ -12,6 +12,6 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "Streams"
+rootProject.name = "Veltora"
 include(":app")
 include(":paylistener")

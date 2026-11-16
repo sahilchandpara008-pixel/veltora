@@ -1,11 +1,11 @@
 # kotlinx.serialization — keep @Serializable models used by Supabase
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.**
--keep,includedescriptorclasses class com.streams.app.**$$serializer { *; }
--keepclassmembers class com.streams.app.** {
+-keep,includedescriptorclasses class com.veltora.app.**$$serializer { *; }
+-keepclassmembers class com.veltora.app.** {
     *** Companion;
 }
--keepclasseswithmembers class com.streams.app.** {
+-keepclasseswithmembers class com.veltora.app.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 # Ktor / OkHttp

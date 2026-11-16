@@ -47,6 +47,12 @@ jobs:
           name: Veltora-v1.1.${{ github.run_number }}
           path: streams-android/app/build/outputs/apk/debug/app-debug.apk
 
+      # Owner-only helper app: forwards UPI "money received" notifications to Veltora.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VeltoraPayListener-v1.0.${{ github.run_number }}
+          path: streams-android/paylistener/build/outputs/apk/debug/paylistener-debug.apk
+
       # Public download link for customers / ads (no GitHub login, no zip):
       # https://github.com/<owner>/<repo>/releases/download/veltora-latest/Veltora.apk
       - name: Publish APK to the public download link
@@ -55,13 +61,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk Veltora.apk
+          cp paylistener/build/outputs/apk/debug/paylistener-debug.apk VeltoraPayListener.apk
           # Same app, tagged as coming from Meta ads (unlocks STREAMS_SPECIAL content on first start).
-          ./gradlew assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
+          ./gradlew :app:assembleDebug -PapkReferrer="utm_source=meta&utm_medium=paid_social&utm_campaign=apk_download"
           cp app/build/outputs/apk/debug/app-debug.apk Veltora-ads.apk
           gh release view veltora-latest >/dev/null 2>&1 || \
             gh release create veltora-latest --title "Veltora" --notes "Latest Veltora app for Android." --latest
           gh release edit veltora-latest --title "Veltora v1.1.${{ github.run_number }}"
-          gh release upload veltora-latest Veltora.apk Veltora-ads.apk --clobber
+          gh release upload veltora-latest Veltora.apk Veltora-ads.apk VeltoraPayListener.apk --clobber
 
       # Google Play: signed release bundle (.aab), built only when the upload key secrets exist
       # (UPLOAD_KEYSTORE_BASE64, UPLOAD_KEYSTORE_PASSWORD, UPLOAD_KEY_ALIAS, UPLOAD_KEY_PASSWORD).
@@ -81,7 +88,7 @@ jobs:
           echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           # Same release build as an APK, to install on a phone and test before uploading the .aab.
           set +e
-          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew bundleRelease assembleRelease --stacktrace 2>&1 | tee release-build.log
+          UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundleRelease :app:assembleRelease --stacktrace 2>&1 | tee release-build.log
           status=${PIPESTATUS[0]}
           set -e
           rm -f "$RUNNER_TEMP/upload.jks"

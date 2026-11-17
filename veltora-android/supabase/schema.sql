@@ -5090,3 +5090,27 @@ begin
     return pay;
   end;
 end $$;
+
+-- ============================================================ 42. Matched bank credit starts the plan for everyone
+-- Money actually seen arriving (bank SMS / UPI app notification matched to the order) starts the
+-- plan for every customer, not only ads customers. Other sources still wait for the owner.
+create or replace function public.verified_payment(p_payment_id uuid, p_source text, p_note text)
+ returns public.payments
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare pay public.payments;
+begin
+  select * into pay from public.payments where id = p_payment_id for update;
+  if pay.status = 'paid' then return pay; end if;
+  if p_source = 'bank_credit' or public.user_is_meta(pay.user_id) then
+    return public.activate_subscription(pay.id, p_source, 'auto: ' || p_source);
+  end if;
+  update public.payments
+     set status = 'review', verified_at = now(), verification_source = p_source,
+         admin_note = coalesce(p_note, 'Payment verified - approve to start the plan'), updated_at = now()
+   where id = pay.id
+  returning * into pay;
+  return pay;
+end $function$;

@@ -616,8 +616,21 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
             return@Column
         }
 
+        fun startPayment(plan: Plan, settings: PaymentSettings) {
+            busy = true; error = null
+            scope.launch {
+                runCatching { Repo.startUpiPayment(plan.id) }
+                    .onSuccess { o -> order = o; openUpiApp(settings, o) }
+                    .onFailure { busy = false; error = it.friendly() }
+            }
+        }
         d.plans.forEach { plan ->
-            PlanCard(plan, selected?.id == plan.id, plan.id == popularId) { selected = plan; error = null }
+            PlanCard(plan, selected?.id == plan.id, plan.id == popularId) {
+                selected = plan; error = null
+                // Signed in and payments set up: go straight to "Pay with" (the installed UPI apps).
+                val st = d.settings
+                if (d.email != null && st != null && !busy) startPayment(plan, st)
+            }
         }
 
         val plan = selected ?: return@Column
@@ -643,18 +656,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                         "the payment is confirmed — no UTR needed.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                PrimaryButton(
-                    "Pay ${formatPrice(plan.price)} via UPI",
-                    onClick = {
-                        busy = true; error = null
-                        scope.launch {
-                            runCatching { Repo.startUpiPayment(plan.id) }
-                                .onSuccess { o -> order = o; openUpiApp(settings, o) }
-                                .onFailure { busy = false; error = it.friendly() }
-                        }
-                    },
-                    loading = busy,
-                )
+                PrimaryButton("Pay ${formatPrice(plan.price)} via UPI", onClick = { startPayment(plan, settings) }, loading = busy)
                 AnimatedVisibility(error != null) {
                     Text(error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -780,57 +782,51 @@ private fun WaitingForPaymentCard(
                     }
                 }
             }
-            // Same as the website checkout: QR, pay manually with the UPI ID, and the UTR fallback.
+            // Fallback, folded away: the UPI ID to pay by hand and the 12-digit UTR box.
             val context = LocalContext.current
-            val qr = remember(order.id) { qrBitmap(upiUri(settings, order).toString()) }
-            if (qr != null && order.status == "pending") {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Image(qr, "UPI QR code", modifier = Modifier.size(200.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(8.dp))
-                }
-                Text("Scan with any UPI app and pay exactly ${formatPrice(order.rupees)}.", style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            }
-            Column(
-                Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(Surface2).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text("Pay manually", style = MaterialTheme.typography.titleSmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(settings.upiId, style = MaterialTheme.typography.bodyLarge, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        color = Color.White, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { copy(context, settings.upiId) }) {
-                        Icon(Icons.Default.ContentCopy, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp)); Text("Copy UPI ID", color = Color.White)
+            var showFallback by remember(order.id) { mutableStateOf(false) }
+            Text(
+                if (showFallback) "Hide" else "Paid but plan not active? Enter UTR",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextMuted,
+                modifier = Modifier.clickable { showFallback = !showFallback }.padding(vertical = 4.dp),
+            )
+            AnimatedVisibility(showFallback) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(Surface2).padding(start = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                            Text("Or pay to this UPI ID", style = MaterialTheme.typography.bodySmall)
+                            Text(settings.upiId, style = MaterialTheme.typography.titleSmall, color = Color.White)
+                        }
+                        IconButton(onClick = { copy(context, settings.upiId) }) { Icon(Icons.Default.ContentCopy, "Copy UPI ID", tint = Color.White) }
                     }
+                    var utr by remember(order.id) { mutableStateOf("") }
+                    var utrBusy by remember(order.id) { mutableStateOf(false) }
+                    var utrError by remember(order.id) { mutableStateOf<String?>(null) }
+                    OutlinedTextField(
+                        value = utr,
+                        onValueChange = { v -> utr = v.filter { it.isDigit() }.take(12); utrError = null },
+                        label = { Text("12-digit UTR / transaction ID") },
+                        placeholder = { Text("123456789012") },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.small,
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, cursorColor = Color.White, focusedLabelColor = Color.White),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("GPay: tap the payment → UPI transaction ID. PhonePe: History → payment → UTR. Paytm: Passbook → payment → UPI Ref No.",
+                        style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                    utrError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    SecondaryButton(
+                        if (utrBusy) "Submitting…" else "Submit UTR",
+                        onClick = { utrBusy = true; onSubmitUtr(utr) { err -> utrBusy = false; utrError = err } },
+                        enabled = utr.length == 12 && !utrBusy,
+                    )
                 }
-                Text(
-                    "If your UPI app shows a limit or risk error: open GPay / PhonePe / Paytm → Pay to UPI ID → paste this ID → " +
-                        "pay exactly ${formatPrice(order.rupees)} → come back here.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
             }
-            var utr by remember(order.id) { mutableStateOf("") }
-            var utrBusy by remember(order.id) { mutableStateOf(false) }
-            var utrError by remember(order.id) { mutableStateOf<String?>(null) }
-            Text("Paid? Enter the 12-digit UTR / transaction ID", style = MaterialTheme.typography.titleSmall)
-            OutlinedTextField(
-                value = utr,
-                onValueChange = { v -> utr = v.filter { it.isDigit() }.take(12); utrError = null },
-                placeholder = { Text("123456789012") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.small,
-                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, cursorColor = Color.White),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text("GPay: tap the payment → UPI transaction ID. PhonePe: History → payment → UTR. Paytm: Passbook → payment → UPI Ref No.",
-                style = MaterialTheme.typography.bodySmall, color = TextMuted)
-            utrError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            SecondaryButton(
-                if (utrBusy) "Submitting…" else "Submit UTR",
-                onClick = { utrBusy = true; onSubmitUtr(utr) { err -> utrBusy = false; utrError = err } },
-                enabled = utr.length == 12 && !utrBusy,
-            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Order valid for 24 hours",
@@ -946,13 +942,6 @@ private fun upiUri(s: PaymentSettings, order: Payment): Uri {
 
 private fun upiIntent(s: PaymentSettings, order: Payment): Intent = Intent(Intent.ACTION_VIEW, upiUri(s, order))
 
-/** QR code of the UPI link (scan with any UPI app on another phone). */
-private fun qrBitmap(text: String, size: Int = 640): ImageBitmap? = runCatching {
-    val m = com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size,
-        mapOf(com.google.zxing.EncodeHintType.MARGIN to 1))
-    val px = IntArray(size * size) { i -> if (m.get(i % size, i / size)) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
-    android.graphics.Bitmap.createBitmap(px, size, size, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
-}.getOrNull()
 
 private class UpiApp(val label: String, val pkg: String, val icon: ImageBitmap?)
 
@@ -960,7 +949,10 @@ private class UpiApp(val label: String, val pkg: String, val icon: ImageBitmap?)
 private fun installedUpiApps(context: Context): List<UpiApp> {
     val pm = context.packageManager
     return runCatching {
-        pm.queryIntentActivities(Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay")), 0)
+        pm.queryIntentActivities(
+            Intent(Intent.ACTION_VIEW, Uri.parse("upi://pay?pa=test@upi&pn=Veltora&am=1.00&cu=INR")),
+            android.content.pm.PackageManager.MATCH_ALL,
+        )
             .distinctBy { it.activityInfo.packageName }
             .map { ri ->
                 UpiApp(

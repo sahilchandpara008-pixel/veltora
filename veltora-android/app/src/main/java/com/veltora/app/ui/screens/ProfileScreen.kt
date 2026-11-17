@@ -81,7 +81,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -686,11 +685,12 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                         )
                         OutlinedTextField(
                             value = utr,
-                            onValueChange = { v -> utr = v.filter { it.isLetterOrDigit() }.take(35).uppercase() },
-                            label = { Text("UTR / reference number") },
+                            onValueChange = { v -> utr = v.filter { it.isDigit() }.take(12) },
+                            label = { Text("12-digit UTR / transaction ID") },
+                            placeholder = { Text("123456789012") },
                             singleLine = true,
                             shape = MaterialTheme.shapes.small,
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.White, cursorColor = Color.White, focusedLabelColor = Color.White),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -705,7 +705,7 @@ private fun PlansSection(d: ProfileData, onSignIn: () -> Unit, onSubmitted: () -
                                     busy = false
                                 }
                             },
-                            enabled = utr.length >= 6 && !busy,
+                            enabled = utr.length == 12 && !busy,
                         )
                     }
                 }

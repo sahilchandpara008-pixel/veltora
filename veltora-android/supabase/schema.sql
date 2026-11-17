@@ -4918,3 +4918,118 @@ begin
 end $function$;
 revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
 grant execute on function public.ingest_bank_sms(text, text, text) to service_role;
+-- ============================================================ 40. One payment = one credit (SMS + app notification)
+-- The same payment can arrive twice: once as the UPI app's notification (no ref) and once as the
+-- bank SMS (with a 12-digit ref). Pair them so one payment can never settle two orders.
+-- Two different payers of the same amount have different notification texts, so they are kept apart.
+alter table public.bank_credits add column if not exists notif_confirmed boolean not null default false;
+
+create or replace function public.ingest_bank_sms(p_key text, p_sender text, p_text text)
+ returns json
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  s        public.bank_sms_settings;
+  t        text := left(coalesce(p_text, ''), 1000);
+  snd      text := left(btrim(coalesce(p_sender, '')), 80);
+  is_notif boolean := snd ilike 'notif:%';
+  cls      record;
+  amt      numeric(10,2);
+  v_ref    text;
+  c        public.bank_credits;
+  pay      public.payments;
+  target   uuid;
+  open_n   int;
+  res      text;
+begin
+  select * into s from public.bank_sms_settings where id = 1;
+  if s.key_hash is null or coalesce(p_key, '') = ''
+     or encode(sha256(convert_to(p_key, 'UTF8')), 'hex') <> s.key_hash then
+    return json_build_object('ok', false, 'error', 'bad key');
+  end if;
+  if not s.enabled then
+    res := 'ignored: auto-verify is off';
+  else
+    select * into cls from public.classify_payment_message(snd, t, s.sender_filter);
+    res := cls.reason; amt := cls.amount; v_ref := cls.ref;
+  end if;
+
+  if res is null then
+    if v_ref is not null then
+      -- Same ref seen before: the very same payment.
+      select * into c from public.bank_credits where ref = v_ref limit 1;
+      if found then res := 'duplicate'; end if;
+      -- Bank SMS for a payment the app notification already reported (no ref): same payment.
+      if res is null and not is_notif then
+        select * into c from public.bank_credits
+         where ref is null and source ilike 'notif:%' and amount = amt and received_at > now() - interval '10 minutes'
+         order by received_at limit 1 for update;
+        if found then
+          update public.bank_credits set ref = v_ref where id = c.id;
+          res := 'same payment as the earlier app notification';
+          pay.id := c.payment_id;
+        end if;
+      end if;
+    elsif is_notif then
+      -- The app re-posted the very same notification.
+      select * into c from public.bank_credits
+       where source ilike 'notif:%' and amount = amt and raw = left(t, 500) and received_at > now() - interval '10 minutes'
+       limit 1;
+      if found then
+        res := 'duplicate';
+      else
+        -- Notification for a payment the bank SMS already reported: same payment.
+        select * into c from public.bank_credits
+         where source ilike 'sms:%' and amount = amt and not notif_confirmed and received_at > now() - interval '10 minutes'
+         order by received_at limit 1 for update;
+        if found then
+          update public.bank_credits set notif_confirmed = true where id = c.id;
+          res := 'same payment as the earlier bank SMS';
+          pay.id := c.payment_id;
+        end if;
+      end if;
+    else
+      -- Bank SMS without a ref: same amount within 3 minutes counts as the same message.
+      select * into c from public.bank_credits where amount = amt and received_at > now() - interval '3 minutes' limit 1;
+      if found then res := 'duplicate'; end if;
+    end if;
+  end if;
+
+  if res is null then
+    select count(*) into open_n from public.payments
+     where amount_paise = round(amt * 100)::int and created_at > now() - interval '30 minutes'
+       and status in ('pending', 'submitted', 'expired') and bank_credit_id is null;
+    insert into public.bank_credits (amount, ref, source, raw, reported_by, ambiguous)
+    values (amt, v_ref, left(case when is_notif then snd else 'sms:' || snd end, 80), left(t, 500), 'sms-forwarder', open_n > 1)
+    returning * into c;
+    target := public.find_order_for_credit(amt, v_ref, now());
+    if target is not null then
+      pay := public.settle_bank_credit(c.id, target);
+      res := case when pay.status = 'paid' then 'activated' else 'matched: waiting for admin approval' end;
+    else
+      update public.payments set bank_credit_id = c.id, updated_at = now()
+       where id = (select id from public.payments
+                    where status in ('paid', 'review') and bank_credit_id is null and amount_paise = round(amt * 100)::int
+                      and (case when v_ref is not null then utr = v_ref else open_n = 0 end)
+                      and created_at > now() - interval '24 hours'
+                    order by created_at desc limit 1)
+       returning * into pay;
+      if pay.id is not null then
+        update public.bank_credits set payment_id = pay.id where id = c.id;
+        res := 'proof added to an existing order';
+      elsif open_n > 1 then
+        res := 'several orders of this amount: waiting for the customer''s UTR';
+      else
+        res := 'no matching order';
+      end if;
+    end if;
+  end if;
+  insert into public.bank_sms_log (sender, result, amount, ref, payment_id, raw)
+  values (snd, res, amt, v_ref, pay.id, case when is_notif then left(t, 300) end);
+  return json_build_object('ok', true, 'result', res, 'amount', amt, 'ref', v_ref, 'payment_id', pay.id,
+                           'order_id', pay.order_id, 'status', pay.status);
+end $function$;
+revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
+grant execute on function public.ingest_bank_sms(text, text, text) to service_role;

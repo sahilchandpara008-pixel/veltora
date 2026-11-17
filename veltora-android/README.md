@@ -3,9 +3,9 @@
 A native Android streaming app with a **Home / Channels / Shows / Profile** bottom bar, Free / Premium / Exclusive content, manual UPI payments verified by an admin, and a hidden admin panel for uploads, payments, channels, campaigns and team access.
 
 ```
-streams-android/
+veltora-android/
 ├── supabase/schema.sql          ← database, security rules, payment approval logic (run once)
-├── app/src/main/java/com/streams/app/
+├── app/src/main/java/com/veltora/app/
 │   ├── data/                    ← Supabase client, models, all database calls (Repo.kt)
 │   ├── ui/screens/              ← Auth, Home, Channels, Shows, Title details, Player, Profile
 │   ├── ui/admin/                ← Admin sign-in, set password, dashboard, upload/edit form
@@ -32,10 +32,10 @@ streams-android/
 ## Step 3 — Sign-in settings in Supabase
 
 **Authentication → URL Configuration**
-- Site URL: `streams://login-callback`
+- Site URL: `veltora://login-callback`
 - Redirect URLs — add both:
-  - `streams://login-callback`
-  - `streams://login-callback/**`
+  - `veltora://login-callback`
+  - `veltora://login-callback/**`
 
 **Authentication → Providers → Email**: make sure it is **enabled**. (This covers magic links and the admin password.)
 
@@ -57,7 +57,7 @@ The app is already connected to the Veltora Supabase project (`wyhexbcmidcclfqng
 
 ## Step 5 — Open and run in Android Studio
 
-1. Android Studio → **File → Open** → select the `streams-android` folder (the one containing `settings.gradle.kts`).
+1. Android Studio → **File → Open** → select the `veltora-android` folder (the one containing `settings.gradle.kts`).
 2. Wait for **Gradle sync** to finish (bottom bar). The first sync downloads libraries and takes a few minutes. If Android Studio offers to upgrade the Android Gradle Plugin, you can accept.
 3. Plug in your Android phone with **USB debugging** on (Settings → About phone → tap Build number 7 times → Developer options → USB debugging), or create an emulator via **Device Manager**.
 4. Press the green **Run ▶** button.
@@ -142,7 +142,7 @@ The app uses the **Poppins** font (© Indian Type Foundry, SIL Open Font License
 
 **How it works**
 1. Your Meta ad links to the app's **Google Play** page with a `referrer` parameter (build it in web admin → *Attribution → Meta campaign link builder*), e.g.
-   `https://play.google.com/store/apps/details?id=com.streams.app&referrer=utm_source%3Dmeta%26utm_medium%3Dpaid_social%26utm_campaign%3Dstreams_special%26utm_content%3Dad_01`
+   `https://play.google.com/store/apps/details?id=com.veltora.app&referrer=utm_source%3Dmeta%26utm_medium%3Dpaid_social%26utm_campaign%3Dstreams_special%26utm_content%3Dad_01`
    Meta *app-install* ads add their own referrer (`utm_source=apps.facebook.com…`) automatically — those are recognised as Meta too.
 2. On first launch the app reads the **Google Play Install Referrer** (official `com.android.installreferrer` library) and sends it with a random per-install id to `record_install`. The **server** parses it into source / medium / campaign / content / term.
 3. When someone signs in, `attribute_user` links that install to the account. **First touch is set once and never overwritten**; it's only given to an account created on/after that install and only to the first account that claims it.

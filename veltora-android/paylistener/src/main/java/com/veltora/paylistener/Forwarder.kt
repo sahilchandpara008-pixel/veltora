@@ -15,6 +15,7 @@ object Forwarder {
     /** UPI / bank apps whose notifications are forwarded. The server checks the same list. */
     val APPS = mapOf(
         "com.google.android.apps.nbu.paisa.user" to "Google Pay",
+        "com.google.android.apps.nbu.paisa.merchant" to "Google Pay for Business",
         "com.phonepe.app" to "PhonePe",
         "net.one97.paytm" to "Paytm",
         "in.org.npci.upiapp" to "BHIM",

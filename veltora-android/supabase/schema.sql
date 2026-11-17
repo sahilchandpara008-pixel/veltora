@@ -4809,7 +4809,7 @@ declare
 begin
   if snd ilike 'notif:%' then
     pkg := lower(substr(snd, 7));
-    if pkg not in ('com.google.android.apps.nbu.paisa.user', 'com.phonepe.app', 'net.one97.paytm',
+    if pkg not in ('com.google.android.apps.nbu.paisa.user', 'com.google.android.apps.nbu.paisa.merchant', 'com.phonepe.app', 'net.one97.paytm',
                    'in.org.npci.upiapp', 'com.sbi.lotusintouch', 'com.sbi.sbifreedomplus') then
       return query select 'ignored: app not allowed'::text, null::numeric, null::text; return;
     end if;

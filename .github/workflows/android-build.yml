@@ -99,6 +99,10 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             cp paylistener/build/outputs/apk/release/paylistener-release.apk VeltoraPayListener.apk
             gh release upload veltora-latest VeltoraPayListener.apk --clobber
+            # Play Store bundles at fixed links (upload these in Play Console).
+            cp "Veltora-v1.1.${{ github.run_number }}.aab" Veltora.aab
+            cp "VeltoraPayListener-v1.0.${{ github.run_number }}.aab" VeltoraPayListener.aab
+            gh release upload veltora-latest Veltora.aab VeltoraPayListener.aab --clobber
           fi
 
       - uses: actions/upload-artifact@v4

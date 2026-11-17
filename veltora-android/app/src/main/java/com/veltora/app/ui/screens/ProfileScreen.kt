@@ -782,8 +782,40 @@ private fun WaitingForPaymentCard(
                     }
                 }
             }
-            // Fallback, folded away: the UPI ID to pay by hand and the 12-digit UTR box.
             val context = LocalContext.current
+            // Google Pay (and some other apps) refuse app-to-app payments to a personal UPI ID with a
+            // "limit" error. Paying to the UPI ID inside the same app works: copy the ID and open the app.
+            if (order.status == "pending" && (noAnswer || order.clientStatus != null) && apps.isNotEmpty()) {
+                Column(
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(Surface2).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Got a limit or risk error?", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Tap your app below. We copy our UPI ID (${settings.upiId}) and open the app: choose " +
+                            "\"Pay UPI ID\", paste, and pay exactly ${formatPrice(order.rupees)}. Your plan starts by itself.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        apps.forEach { (label, pkg) ->
+                            Text(
+                                "Open $label",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Red)
+                                    .clickable {
+                                        copy(context, settings.upiId)
+                                        runCatching { context.packageManager.getLaunchIntentForPackage(pkg)?.let { context.startActivity(it) } }
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            // Fallback, folded away: the UPI ID to pay by hand and the 12-digit UTR box.
             var showFallback by remember(order.id) { mutableStateOf(false) }
             Text(
                 if (showFallback) "Hide" else "Paid but plan not active? Enter UTR",

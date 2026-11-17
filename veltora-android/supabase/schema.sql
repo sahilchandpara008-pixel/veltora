@@ -5033,3 +5033,60 @@ begin
 end $function$;
 revoke execute on function public.ingest_bank_sms(text, text, text) from public, anon, authenticated;
 grant execute on function public.ingest_bank_sms(text, text, text) to service_role;
+
+-- ============================================================ 41. The UPI app's answer is a claim, not proof
+-- SUCCESS from the UPI app only records the transaction id and marks the order 'submitted'.
+-- The plan starts from a matched bank SMS / app notification, a matched UTR, or the owner's approval.
+create or replace function public.report_upi_result(p_payment_id uuid, p_response text)
+returns public.payments language plpgsql security definer set search_path = public as $$
+declare
+  f   jsonb := public.parse_upi_response(p_response);
+  st  text := lower(coalesce(f ->> 'status', ''));
+  ref text := nullif(btrim(coalesce(f ->> 'txnref', '')), '');
+  v   text := regexp_replace(coalesce(nullif(f ->> 'approvalrefno', ''), nullif(f ->> 'txnid', ''), ''), '\s', '', 'g');
+  pay public.payments;
+  why text;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first'; end if;
+  update public.payments set upi_response = left(p_response, 2000), client_status = nullif(st, ''), updated_at = now()
+   where id = p_payment_id and user_id = auth.uid()
+  returning * into pay;
+  if not found then raise exception 'Order not found'; end if;
+
+  begin
+    if st = 'success' then
+      if pay.status in ('paid', 'review', 'submitted') then return public.try_verify_payment(pay.id); end if;
+      if pay.status not in ('pending', 'expired', 'cancelled') then why := 'order is ' || pay.status;
+      elsif ref is not null and upper(ref) <> upper(pay.order_id) then why := 'txnRef ' || ref || ' is not this order';
+      elsif v !~ '^[A-Za-z0-9]{6,40}$' then why := 'no transaction id in the answer';
+      elsif exists (select 1 from public.payments where id <> pay.id and (upper(coalesce(txn_id, '')) = upper(v) or utr = v)) then
+        why := 'transaction id ' || v || ' was already used';
+      elsif pay.created_at < now() - interval '2 hours' then why := 'order is older than 2 hours';
+      end if;
+      if why is null then
+        update public.payments
+           set txn_id = v, utr = case when v ~ '^[0-9]{12}$' then v else utr end, status = 'submitted',
+               result_note = 'UPI app reported SUCCESS (txn ' || v || ') - waiting for the bank to confirm', updated_at = now()
+         where id = pay.id;
+        return public.try_verify_payment(pay.id);
+      end if;
+      update public.payments set result_note = 'UPI app SUCCESS not accepted: ' || why, updated_at = now()
+       where id = pay.id returning * into pay;
+    elsif st in ('failure', 'failed') then
+      update public.payments
+         set status = case when status = 'pending' then 'failed' else status end,
+             result_note = 'UPI app reported FAILURE', updated_at = now()
+       where id = pay.id returning * into pay;
+      return pay;
+    else
+      update public.payments set result_note = 'UPI app answer: ' || coalesce(nullif(st, ''), 'none') || ' - waiting for verification',
+             updated_at = now()
+       where id = pay.id returning * into pay;
+    end if;
+    return public.try_verify_payment(pay.id);
+  exception when others then
+    update public.payments set result_note = left('Could not process the answer: ' || sqlerrm, 300), updated_at = now()
+     where id = pay.id returning * into pay;
+    return pay;
+  end;
+end $$;

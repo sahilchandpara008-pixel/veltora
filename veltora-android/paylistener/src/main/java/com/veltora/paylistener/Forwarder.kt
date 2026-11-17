@@ -24,6 +24,7 @@ object Forwarder {
 
     private const val PREFS = "veltora_pay_listener"
     private val io = Executors.newSingleThreadExecutor()
+    @Volatile private var lastError: String? = null
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     fun link(ctx: Context) = prefs(ctx).getString("link", "").orEmpty()
@@ -55,7 +56,8 @@ object Forwarder {
                 val o = JSONObject(item)
                 val result = post(link(app), o.getString("from"), o.getString("text"))
                 if (result == null) left += item
-                addHistory(app, "${o.getString("from").removePrefix("notif:")}: ${result ?: "not sent, will retry"}")
+                addHistory(app, "${o.getString("from").removePrefix("notif:")}: ${result ?: (lastError ?: "not sent, will retry")}")
+                lastError = null
             }
             writeList(app, "queue", left.takeLast(50))
         }
@@ -76,7 +78,8 @@ object Forwarder {
             val body = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             c.disconnect()
             when {
-                code == 401 -> "wrong link (create a new SMS link and paste it again)"
+                // Wrong/old link: keep the message so it is re-sent once the right link is saved.
+                code == 401 -> { lastError = "wrong link (create a new SMS link and paste it again)"; null }
                 code >= 500 -> null
                 else -> runCatching { JSONObject(body).optString("result", body) }.getOrDefault(body).take(120)
             }

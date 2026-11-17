@@ -4975,7 +4975,7 @@ begin
     elsif is_notif then
       -- The app re-posted the very same notification.
       select * into c from public.bank_credits
-       where source ilike 'notif:%' and amount = amt and raw = left(t, 500) and received_at > now() - interval '10 minutes'
+       where source ilike 'notif:%' and amount = amt and raw = left(t, 500) and received_at > now() - interval '2 minutes'
        limit 1;
       if found then
         res := 'duplicate';
